@@ -1,0 +1,9 @@
+ISSUES:
+- Not sure about N flag behaviour in OP01...
+- I dont understand Relative addressing mode...
+- writeRAM time while writing isnt adjusted...
+
+ToDo:
+
+- IRQ pin & functions
+- RW pin isnt functional in code
