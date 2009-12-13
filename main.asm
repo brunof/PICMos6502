@@ -116,7 +116,7 @@ BSR_TEMP 	res 1			;variable usada para salvar contexto
 ;******************************************************************************
 ;MACROS:
 ;******************************************************************************
-MODIFY_FLAGS	MACRO	FLAGS, SOURCEVAR, FINALVAR
+MODIFY_FLAGS	MACRO	FLAGS
 		if(FLAGS & FLAG_C)
 			MODIFY_C_FLAG
 		endif
@@ -124,7 +124,7 @@ MODIFY_FLAGS	MACRO	FLAGS, SOURCEVAR, FINALVAR
 			MODIFY_Z_FLAG
 		endif
 		if(FLAGS & FLAG_N)
-			MODIFY_N_FLAG	FINALVAR
+			MODIFY_N_FLAG
 		endif
 		if(FLAGS & FLAG_B)
 			MODIFY_B_FLAG
@@ -136,7 +136,7 @@ MODIFY_FLAGS	MACRO	FLAGS, SOURCEVAR, FINALVAR
 			MODIFY_I_FLAG
 		endif
 		if(FLAGS & FLAG_V)
-			MODIFY_V_FLAG SOURCEVAR,FINALVAR
+			MODIFY_V_FLAG
 		endif
 	ENDM
 
@@ -156,9 +156,9 @@ MODIFY_Z_FLAG	MACRO
 	ENDM
 
 ;////////////
-MODIFY_N_FLAG	MACRO		finalVar
+MODIFY_N_FLAG	MACRO
 		bcf		emul_N				;modify Negative flag
-		btfsc	finalVar,7			;negative bit set?
+		btfsc	STATUS,N			;negative bit set?
 		bsf		emul_N				;yes	
 	ENDM
 
@@ -175,14 +175,10 @@ MODIFY_I_FLAG	MACRO
 	ENDM
 
 ;////////////
-;WARNING! THIS FUNCTION DESTROYS PIC STATUS,Z FLAG!! MUST be the last one in be modified!!!
-MODIFY_V_FLAG	MACRO		sourceVar, finalVar
+MODIFY_V_FLAG	MACRO
 		bcf		emul_V
-		movf	sourceVar,W
-		xorwf	finalVar,W
-		andlw	0x80
-		btfss	STATUS,Z
-		bsf		emul_V			;hmmm 7th bit change value...it must then, overflowed...:)
+		btfsc	STATUS,OV
+		bsf		emul_V
 	ENDM
 
 
@@ -350,7 +346,7 @@ ADC_COMMON
 	addwf	emulAC,F			;and store result in Acumulator
 
 	;set flags...	
-	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C | FLAG_V),aux1,emulAC
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C | FLAG_V)
 	goto	EXECUTE
 ;///////////////////////////////////
 ;///////////////////////////////////
@@ -448,7 +444,7 @@ AND_COMMON
 	andwf	emulAC,F
 
 	;set flags...	
-	MODIFY_FLAGS	(FLAG_N | FLAG_Z),0,emulAC
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z)
 	goto	EXECUTE
 ;///////////////////////////////////
 ;///////////////////////////////////
@@ -544,7 +540,7 @@ ASL_SEMICOMMON
 	rlcf	aux1,F		;CANT USE RLNCF because it wont affect C bit
 	
 	;set flags...	
-	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C),0,aux1
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
 	
 	movf	aux1,W
 	call	writeRAM	;finally, write new value in address
@@ -572,14 +568,14 @@ OP0A
 	rlcf	emulAC,F		;CANT USE RLNCF because it wont affect C bit
 	
 	;set flags...	
-	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C),0,emulAC	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
 	goto	EXECUTE
 
 ;///////////////////////////////////
 ;OPCODE 0x0E:		ASL
 ;absolute ASL oper
 ;///////////////////////////////////
-OP
+OP0E
 	call	ABS
 	bra		ASL_SEMICOMMON
 
@@ -587,7 +583,7 @@ OP
 ;OPCODE 0x16:		ASL
 ;zeropage,X ASL oper,X
 ;///////////////////////////////////
-OP
+OP16
 	call	ZPGX
 	bra		ASL_SEMICOMMON
 
@@ -595,41 +591,863 @@ OP
 ;OPCODE 0x1E:		ASL
 ;absolute,X ASL oper,X
 ;///////////////////////////////////
-OP
+OP1E
 	call	ABSX
 	bra		ASL_SEMICOMMON
 
 
+;**********************************************************************
+;BCC INSTRUCTIONS!!!
+;**********************************************************************
+;BCC 
+;Branch on Carry Clear branch on C = 0 
+;N Z C I D V
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;relative BCC oper 90 2 2** 
+;**********************************************************************
+;///////////////////////////////////
+;OPCODE 0x90:		BCC
+;relative BCC oper 90 2 2** 
+;///////////////////////////////////
+OP90
+	btfsc	emul_C			;Carry clear?
+	goto	EXECUTE
+
+	movf	emulOP+1,W		;Yes. Branch!
+	addwf	emulPC,F
+	btfsc	STATUS,C		;page overflow?
+	incf	emulPC+1,F		;yes, increase page number
+
+	MODIFY_FLAGS	(0)		;no flags affected
+	goto	EXECUTE			;done!
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BCS 
+;Branch on Carry Set branch on C = 1 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;relative BCS oper B0 2 2** 
+;**********************************************************************
+;///////////////////////////////////
+;OPCODE 0xB0:		BCS
+;relative BCS oper B0 2 2** 
+;///////////////////////////////////
+OPB0
+	btfss	emul_C			;Carry set?
+	goto	EXECUTE
+
+	movf	emulOP+1,W		;Yes. Branch!
+	addwf	emulPC,F
+	btfsc	STATUS,C		;page overflow?
+	incf	emulPC+1,F		;yes, increase page number
+
+	MODIFY_FLAGS	(0)		;no flags affected
+	goto	EXECUTE			;done!
+
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BEQ 
+;Branch on Result Zero branch on Z = 1 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;relative BEQ oper F0 2 2** 
+;**********************************************************************
+;///////////////////////////////////
+;OPCODE 0xF0:		BEQ
+;relative BEQ oper F0 2 2** 
+;///////////////////////////////////
+OPF0
+	btfss	emul_Z			;Zero set?
+	goto	EXECUTE
+
+	movf	emulOP+1,W		;Yes. Branch!
+	addwf	emulPC,F
+	btfsc	STATUS,C		;page overflow?
+	incf	emulPC+1,F		;yes, increase page number	
+
+	MODIFY_FLAGS	(0)		;no flags affected
+	goto	EXECUTE
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BIT 
+;Test Bits in Memory with Accumulator bits 7 and 6 of operand are transfered to bit 7 and 6 of SR (N,V); 
+;the zeroflag is set to the result of operand AND accumulator. 
+;A AND M, M7 -> N, M6 -> V 
+;N Z C I D V 
+;M7 + - - - M6 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;zeropage BIT oper 24 2 3 
+;absolute BIT oper 2C 3 4 
+;**********************************************************************
+;///////////////////////////////////
+;///////////////////////////////////
+BIT_COMMON
+	movwf	aux1			;store result in aux var
+	andwf	emulAC,W		;and with acumulator
+
+	MODIFY_FLAGS	(FLAG_Z) ;modify Z flag
+
+	bcf		emul_N
+	btfsc	aux1,7			;transfer memory bits 7 and 6 to STATUS Reg
+	bsf		emul_N
+
+	bcf		emul_V
+	btfsc	aux1,6
+	bsf		emul_V
+
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
 
 
 
+;///////////////////////////////////
+;OPCODE 0x24:		BIT
+;zeropage BIT oper 24 2 3 
+;///////////////////////////////////
+OP24
+	call	ZPG
+	bra		BIT_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x2C:		BIT
+;absolute BIT oper 2C 3 4 
+;///////////////////////////////////
+OP2C
+	call	ABS
+	bra		BIT_COMMON
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BMI 
+;Branch on Result Minus 
+;branch on N = 1 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;relative BMI oper 30 2 2** 
+;**********************************************************************
+;///////////////////////////////////
+;///////////////////////////////////
+;///////////////////////////////////
+;OPCODE 0x30:		BMI		
+;relative BMI oper 30 2 2** 
+;///////////////////////////////////
+OP30	
+	btfss	emul_N			;Negative set?
+	goto	EXECUTE
+
+	movf	emulOP+1,W		;Yes. Branch!
+	addwf	emulPC,F
+	btfsc	STATUS,C		;page overflow?
+	incf	emulPC+1,F		;yes, increase page number	
+
+	MODIFY_FLAGS	(0)		;no flags affected
+	goto	EXECUTE
+
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BNE 
+;Branch on Result not Zero 
+;branch on Z = 0 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;relative BNE oper D0 2 2** 
+;**********************************************************************
+;///////////////////////////////////
+;///////////////////////////////////
+;///////////////////////////////////
+;OPCODE 0xD0:		BMI		
+;relative BNE oper D0 2 2** 
+;///////////////////////////////////
+OPD0	
+	btfsc	emul_Z			;Zero clear?
+	goto	EXECUTE
+
+	movf	emulOP+1,W		;Yes. Branch!
+	addwf	emulPC,F
+	btfsc	STATUS,C		;page overflow?
+	incf	emulPC+1,F		;yes, increase page number	
+
+	MODIFY_FLAGS	(0)		;no flags affected
+	goto	EXECUTE
+
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BPL 
+;Branch on Result Plus 
+;branch on N = 0 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;relative BPL oper 10 2 2** 
+;**********************************************************************
+;///////////////////////////////////
+;///////////////////////////////////
+;///////////////////////////////////
+;OPCODE 0x10:		BMI		
+;relative BPL oper 10 2 2** 
+;///////////////////////////////////
+OP10	
+	btfsc	emul_N			;Negative clear?
+	goto	EXECUTE
+
+	movf	emulOP+1,W		;Yes. Branch!
+	addwf	emulPC,F
+	btfsc	STATUS,C		;page overflow?
+	incf	emulPC+1,F		;yes, increase page number	
+
+	MODIFY_FLAGS	(0)		;no flags affected
+	goto	EXECUTE
+
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BRK 
+;Force Break 
+;interrupt, 			N Z C I D V 
+;push PC+2, push SR 	- - - 1 - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied BRK 00 1 7 
+;**********************************************************************
+;///////////////////////////////////
+;///////////////////////////////////
 
 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BVC 
+;Branch on Overflow Clear branch on V = 0 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;relative BVC oper 50 2 2** 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;BVS 
+;Branch on Overflow 
+;Set branch on V = 1 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;relative BVC oper 70 2 2** 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;CLC 
+;Clear Carry Flag 0 -> C 
+;N Z C I D V 
+;- - 0 - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied CLC 18 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;CLD 
+;Clear Decimal Mode 
+;0 -> D 
+;N Z C I D V
+; - - - - 0 - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied CLD D8 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;CLI 
+;Clear Interrupt Disable Bit 0 -> I 
+;N Z C I D V 
+;- - - 0 - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied CLI 58 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;CLV 
+;Clear Overflow Flag 0 -> V 
+;N Z C I D V 
+;- - - - - 0 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied CLV B8 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;CMP 
+;Compare Memory with Accumulator 
+;A - M 
+;N Z C I D V 
+;+ + + - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate CMP #oper C9 2 2 
+;zeropage CMP oper C5 2 3 
+;zeropage,X CMP oper,X D5 2 4 
+;absolute CMP oper CD 3 4 
+;absolute,X CMP oper,X DD 3 4* 
+;absolute,Y CMP oper,Y D9 3 4* 
+;(indirect,X) CMP (oper,X) C1 2 6 
+;(indirect),Y CMP (oper),Y D1 2 5* 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;CPX 
+;Compare Memory and Index X 
+;X - M 
+;N Z C I D V 
+;+ + + - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate CPX #oper E0 2 2 
+;zeropage CPX oper E4 2 3 
+;absolute CPX oper EC 3 4 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;CPY 
+;Compare Memory and Index Y 
+;Y - M 
+;N Z C I D V 
+;+ + + - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate CPY #oper C0 2 2 
+;zeropage CPY oper C4 2 3 
+;absolute CPY oper CC 3 4 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;DEC 
+;Decrement Memory by One 
+;M - 1 -> M 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;zeropage DEC oper C6 2 5 
+;zeropage,X DEC oper,X D6 2 6 
+;absolute DEC oper CE 3 3 
+;absolute,X DEC oper,X DE 3 7 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;DEX 
+;Decrement Index X by One 
+;X - 1 -> X 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied DEC CA 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;DEY 
+;Decrement Index Y by One 
+;Y - 1 -> Y 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied DEC 88 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;EOR 
+;Exclusive-OR Memory with Accumulator 
+;A EOR M -> A 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate EOR #oper 49 2 2 
+;zeropage EOR oper 45 2 3 
+;zeropage,X EOR oper,X 55 2 4 
+;absolute EOR oper 4D 3 4 
+;absolute,X EOR oper,X 5D 3 4* 
+;absolute,Y EOR oper,Y 59 3 4* 
+;(indirect,X) EOR (oper,X) 41 2 6 
+;(indirect),Y EOR (oper),Y 51 2 5* 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;INC 
+;Increment Memory by One 
+;M + 1 -> M 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;zeropage INC oper E6 2 5 
+;zeropage,X INC oper,X F6 2 6 
+;absolute INC oper EE 3 6 
+;absolute,X INC oper,X FE 3 7 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;INX 
+;Increment Index X by One 
+;X + 1 -> X 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied INX E8 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;INY 
+;Increment Index Y by One 
+;Y + 1 -> Y 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied INY C8 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;JMP 
+;Jump to New Location 
+;(PC+1) -> PCL N Z C I D V     
+;(PC+2) -> PCH - - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;absolute JMP oper 4C 3 3 
+;indirect JMP (oper) 6C 3 5 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;JSR 
+;Jump to New Location Saving Return Address 
+;push (PC+2),  N Z C I D V 
+;(PC+1) -> PCL - - - - - - 
+;(PC+2) -> PCH 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;absolute JSR oper 20 3 6 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;LDA 
+;Load Accumulator with Memory 
+;M -> A 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate LDA #oper A9 2 2 
+;zeropage LDA oper A5 2 3 
+;zeropage,X LDA oper,X B5 2 4 
+;absolute LDA oper AD 3 4 
+;absolute,X LDA oper,X BD 3 4* 
+;absolute,Y LDA oper,Y B9 3 4* 
+;(indirect,X) LDA (oper,X) A1 2 6 
+;(indirect),Y LDA (oper),Y B1 2 5* 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;LDX 
+;Load Index X with Memory 
+;M -> X 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate LDX #oper A2 2 2 
+;zeropage LDX oper A6 2 3 
+;zeropage,Y LDX oper,Y B6 2 4 
+;absolute LDX oper AE 3 4 
+;absolute,Y LDX oper,Y BE 3 4* 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;LDY 
+;Load Index Y with Memory 
+;M -> Y 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate LDY #oper A0 2 2 
+;zeropage LDY oper A4 2 3 
+;zeropage,X LDY oper,X B4 2 4 
+;absolute LDY oper AC 3 4 
+;absolute,X LDY oper,X BC 3 4* 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;LSR 
+;Shift One Bit Right 
+;(Memory or Accumulator) 0 -> [76543210] -> C 
+;N Z C I D V 
+;- + + - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;accumulator LSR A 4A 1 2 
+;zeropage LSR oper 46 2 5 
+;zeropage,X LSR oper,X 56 2 6 
+;absolute LSR oper 4E 3 6 
+;absolute,X LSR oper,X 5E 3 7 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;NOP 
+;No Operation --- 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied NOP EA 1 2 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;ORA 
+;OR Memory with Accumulator 
+;A OR M -> A 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate ORA #oper 09 2 2 
+;zeropage ORA oper 05 2 3 
+;zeropage,X ORA oper,X 15 2 4 
+;absolute ORA oper 0D 3 4 
+;absolute,X ORA oper,X 1D 3 4* 
+;absolute,Y ORA oper,Y 19 3 4* 
+;(indirect,X) ORA (oper,X) 01 2 6 
+;(indirect),Y ORA (oper),Y 11 2 5* 
 
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;PHA 
+;Push Accumulator on Stack 
+;push A 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied PHA 48 1 3 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;PHP 
+;Push Processor Status on Stack 
+;push SR 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied PHP 08 1 3 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;PLA 
+;Pull Accumulator from Stack 
+;pull A 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied PLA 68 1 4 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;PLP 
+;Pull Processor Status from Stack 
+;pull SR 
+;N Z C I D V
+;from stack 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied PHP 28 1 4 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;ROL 
+;Rotate One Bit Left 
+;(Memory or Accumulator) C <- [76543210] <- C 
+;N Z C I D V 
+;+ + + - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;accumulator ROL A 2A 1 2 
+;zeropage ROL oper 26 2 5 
+;zeropage,X ROL oper,X 36 2 6 
+;absolute ROL oper 2E 3 6 
+;absolute,X ROL oper,X 3E 3 7 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;ROR 
+;Rotate One Bit Right 
+;(Memory or Accumulator) C -> [76543210] -> C 
+;N Z C I D V 
+;+ + + - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;accumulator ROR A 6A 1 2 
+;zeropage ROR oper 66 2 5 
+;zeropage,X ROR oper,X 76 2 6 
+;absolute ROR oper 6E 3 6 
+;absolute,X ROR oper,X 7E 3 7 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;RTI 
+;Return from Interrupt 
+;pull SR, pull PC 
+;N Z C I D V 
+;from stack 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied RTI 40 1 6 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;RTS 
+;Return from Subroutine 
+;pull PC, PC+1 -> PC 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied RTS 60 1 6 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;SBC 
+;Subtract Memory from Accumulator with Borrow 
+;A - M - C -> A 
+;N Z C I D V 
+;+ + + - - + 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;immidiate SBC #oper E9 2 2 
+;zeropage SBC oper E5 2 3 
+;zeropage,X SBC oper,X F5 2 4 
+;absolute SBC oper ED 3 4 
+;absolute,X SBC oper,X FD 3 4* 
+;absolute,Y SBC oper,Y F9 3 4* 
+;(indirect,X) SBC (oper,X) E1 2 6 
+;(indirect),Y SBC (oper),Y F1 2 5* 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;SEC 
+;Set Carry Flag 
+;1 -> C 
+;N Z C I D V 
+;- - 1 - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied SEC 38 1 2 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;SED 
+;Set Decimal Flag 
+;1 -> D 
+;N Z C I D V 
+;- - - - 1 - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied SED F8 1 2 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;SEI 
+;Set Interrupt Disable Status 
+;1 -> I 
+;N Z C I D V 
+;- - - 1 - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied SEI 78 1 2 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;STA 
+;Store Accumulator in Memory 
+;A -> M 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;zeropage STA oper 85 2 3 
+;zeropage,X STA oper,X 95 2 4 
+;absolute STA oper 8D 3 4 
+;absolute,X STA oper,X 9D 3 5 
+;absolute,Y STA oper,Y 99 3 5 
+;(indirect,X) STA (oper,X) 81 2 6 
+;(indirect),Y STA (oper),Y 91 2 6 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;STX 
+;Store Index X in Memory 
+;X -> M 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;zeropage STX oper 86 2 3 
+;zeropage,Y STX oper,Y 96 2 4 
+;absolute STX oper 8E 3 4 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;STY 
+;Sore Index Y in Memory 
+;Y -> M 
+;N Z C I D V 
+;- - - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;zeropage STY oper 84 2 3 
+;zeropage,X STY oper,X 94 2 4 
+;absolute STY oper 8C 3 4 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;TAX 
+;Transfer Accumulator to Index X 
+;A -> X 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied TAX AA 1 2 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;TAY 
+;Transfer Accumulator to Index Y 
+;A -> Y 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied TAY A8 1 2 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;TSX 
+;Transfer Stack Pointer to Index X 
+;SP -> X 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied TSX BA 1 2 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;TXA 
+;Transfer Index X to Accumulator 
+;X -> A 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied TXA 8A 1 2 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;TXS 
+;Transfer Index X to Stack Register 
+;X -> SP 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied TXS 9A 1 2 
+
+;**********************************************************************
+; INSTRUCTIONS!!!
+;**********************************************************************
+;TYA 
+;Transfer Index Y to Accumulator 
+;Y -> A 
+;N Z C I D V 
+;+ + - - - - 
+;addressing assembler opc bytes cyles 
+;-------------------------------------------- 
+;implied TYA 98 1 2 
 
 
 
