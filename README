@@ -7,9 +7,8 @@ ISSUES:
 - in BMI instruction, branch operand is assumed to be UNSIGNED int8(always forward branch). Maybe it should be signed. Extra Documentation needed...
 - in BNE instruction, branch operand is assumed to be UNSIGNED int8(always forward branch). Maybe it should be signed. Extra Documentation needed...
 - in BPL instruction, branch operand is assumed to be UNSIGNED int8(always forward branch). Maybe it should be signed. Extra Documentation needed...
-
+- STA INSTRUCTIONS could be faster, because it reads a memory position without needing it. Its actually this way because it uses standard Addresses mode functions
 ToDo:
 
-- IRQ pin & functions
+- IRQ pin & functions associated
 - RW pin isnt functional in code
-- Instruction Set

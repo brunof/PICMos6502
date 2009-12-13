@@ -209,6 +209,29 @@ PUSHPC2STACK	MACRO
 	ENDM
 
 ;/////////////////////////////////
+;PULL PC FROM SOFT STACK
+;/////////////////////////////////
+PULLPCFROMSTACK	MACRO
+		decf	emulSP,F	;decrement SP
+		
+		;lets pull PC value from software STACK...
+		movlw	0x01
+		movwf	ramH		;address 0x01XX
+
+		movf	emulSP,W	;address 0x0100+emulSP
+		call	readRAM
+
+		movwf	emulPC+1	;save readed value to PCH
+
+		decf	emulSP,F	;decrement SP
+
+		movf	emulSP,W	;address 0x0100+emulSP
+		call	readRAM
+
+		movwf	emulPC		;save readed value to PCL
+	ENDM
+
+;/////////////////////////////////
 ;PUSH SR TO SOFT STACK
 ;/////////////////////////////////
 PUSHSR2STACK	MACRO
@@ -1865,7 +1888,7 @@ OP5E
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;NOP INSTRUCTIONS!!!
 ;**********************************************************************
 ;NOP 
 ;No Operation --- 
@@ -1883,7 +1906,7 @@ OPEA
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;ORA INSTRUCTIONS!!!
 ;**********************************************************************
 ;ORA 
 ;OR Memory with Accumulator 
@@ -1978,7 +2001,7 @@ OP1D
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;PHA INSTRUCTIONS!!!
 ;**********************************************************************
 ;PHA 
 ;Push Accumulator on Stack 
@@ -1998,7 +2021,7 @@ OP48
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;PHP INSTRUCTIONS!!!
 ;**********************************************************************
 ;PHP 
 ;Push Processor Status on Stack 
@@ -2017,7 +2040,7 @@ OP08
 	goto		EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;PLA INSTRUCTIONS!!!
 ;**********************************************************************
 ;PLA 
 ;Pull Accumulator from Stack 
@@ -2045,7 +2068,7 @@ OP68
 	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;PLP INSTRUCTIONS!!!
 ;**********************************************************************
 ;PLP 
 ;Pull Processor Status from Stack 
@@ -2073,7 +2096,7 @@ OP28
 	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;ROL INSTRUCTIONS!!!
 ;**********************************************************************
 ;ROL 
 ;Rotate One Bit Left 
@@ -2157,7 +2180,7 @@ OP3E
 	bra		ROL_SEMICOMMON
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;ROR INSTRUCTIONS!!!
 ;**********************************************************************
 ;ROR 
 ;Rotate One Bit Right 
@@ -2242,7 +2265,7 @@ OP7E
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;RTI INSTRUCTIONS!!!
 ;**********************************************************************
 ;RTI 
 ;Return from Interrupt 
@@ -2262,7 +2285,7 @@ OP40
 	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;RTS INSTRUCTIONS!!!
 ;**********************************************************************
 ;RTS 
 ;Return from Subroutine 
@@ -2272,10 +2295,16 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied RTS 60 1 6 
-
+;///////////////////////////////////
+;OPCODE 0x60:			
+;implied RTS
+;///////////////////////////////////
+OP60
+	PULLPCFROMSTACK		;MACRO THAT PULLs PC FROM SOFTWARE STACK
+	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;SBC INSTRUCTIONS!!!
 ;**********************************************************************
 ;SBC 
 ;Subtract Memory from Accumulator with Borrow 
@@ -2284,18 +2313,96 @@ OP40
 ;+ + + - - + 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;immidiate SBC #oper E9 2 2 
-;zeropage SBC oper E5 2 3 
-;zeropage,X SBC oper,X F5 2 4 
-;absolute SBC oper ED 3 4 
-;absolute,X SBC oper,X FD 3 4* 
-;absolute,Y SBC oper,Y F9 3 4* 
 ;(indirect,X) SBC (oper,X) E1 2 6 
+;zeropage SBC oper E5 2 3 
+;immidiate SBC #oper E9 2 2 
+;absolute SBC oper ED 3 4 
 ;(indirect),Y SBC (oper),Y F1 2 5* 
+;zeropage,X SBC oper,X F5 2 4 
+;absolute,Y SBC oper,Y F9 3 4* 
+;absolute,X SBC oper,X FD 3 4* 
+;///////////////////////////////////
+;///////////////////////////////////
+SBC_COMMON
+	subwf	emulAC,F		;AC = AC - M
+	btfsc	emul_C			;habia carry?
+	decf	emulAC,F		;Si. AC = AC - C
+
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C | FLAG_V) ;modify flags
+	goto	EXECUTE
+
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0xE1:				SBC
+;(indirect,X) SBC (oper,X)
+;///////////////////////////////////
+OPE1
+	call	BPX
+	bra		SBC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xE5:				SBC
+;zeropage SBC oper
+;///////////////////////////////////
+OPE5
+	call	ZPG
+	bra		SBC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xE9:				SBC
+;immidiate SBC #oper
+;///////////////////////////////////
+OPE9
+	call	IMM
+	bra		SBC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xED:				SBC
+;absolute SBC oper
+;///////////////////////////////////
+OPED
+	call	ABS
+	bra		SBC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xF1:				SBC
+;(indirect),Y SBC (oper),Y
+;///////////////////////////////////
+OPF1
+	call	INDY
+	bra		SBC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xF5:				SBC
+;zeropage,X SBC oper,X
+;///////////////////////////////////
+OPF5
+	call	ZPGX
+	bra		SBC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xF9:				SBC
+;absolute,Y SBC oper,Y
+;///////////////////////////////////
+OPF9
+	call	ABSY
+	bra		SBC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xFD:				SBC
+;absolute,X SBC oper,X
+;///////////////////////////////////
+OPFD
+	call	ABSX
+	bra		SBC_COMMON
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;SEC INSTRUCTIONS!!!
 ;**********************************************************************
 ;SEC 
 ;Set Carry Flag 
@@ -2305,10 +2412,17 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied SEC 38 1 2 
+;///////////////////////////////////
+;OPCODE 0x38:				SEC		
+;implied SEC
+;///////////////////////////////////
+OP38
+	bsf		emul_C
+	goto	EXECUTE
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;SED INSTRUCTIONS!!!
 ;**********************************************************************
 ;SED 
 ;Set Decimal Flag 
@@ -2318,10 +2432,17 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied SED F8 1 2 
+;///////////////////////////////////
+;OPCODE 0xF8:				SED
+;implied SED
+;///////////////////////////////////
+OPF8
+	bsf		emul_D	
+	goto	EXECUTE
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;SEI INSTRUCTIONS!!!
 ;**********************************************************************
 ;SEI 
 ;Set Interrupt Disable Status 
@@ -2331,10 +2452,17 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied SEI 78 1 2 
+;///////////////////////////////////
+;OPCODE 0x78:				SEI
+;implied SEI
+;///////////////////////////////////
+OP78
+	bsf		emul_I
+	goto	EXECUTE
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;STA INSTRUCTIONS!!!
 ;**********************************************************************
 ;STA 
 ;Store Accumulator in Memory 
@@ -2343,17 +2471,84 @@ OP40
 ;- - - - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;zeropage STA oper 85 2 3 
-;zeropage,X STA oper,X 95 2 4 
-;absolute STA oper 8D 3 4 
-;absolute,X STA oper,X 9D 3 5 
-;absolute,Y STA oper,Y 99 3 5 
 ;(indirect,X) STA (oper,X) 81 2 6 
+;zeropage STA oper 85 2 3 
+;absolute STA oper 8D 3 4 
 ;(indirect),Y STA (oper),Y 91 2 6 
+;zeropage,X STA oper,X 95 2 4 
+;absolute,Y STA oper,Y 99 3 5 
+;absolute,X STA oper,X 9D 3 5 
+;///////////////////////////////////
+;///////////////////////////////////
+STA_COMMON
+	movf	emulAC,W		;IGNORE READED MEMORY POSITION and copy AC to W
+	call	writeRAM		;write AC to M (ramH and ramL addresses were founded when calling addressing mode)
+
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0x81:				STA
+;(indirect,X) STA (oper,X) 81 2 6 
+;///////////////////////////////////
+OP81
+	call	BPX
+	bra		STA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x85:				STA
+;zeropage STA oper 85 2 3 
+;///85////////////////////////////////
+OP85
+	call	ZPG
+	bra		STA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x8D:				STA
+;absolute STA oper 8D 3 
+;///////////////////////////////////
+OP8D
+	call	ABS
+	bra		STA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x91:				STA
+;(indirect),Y STA (oper),Y 91 2 6 
+;///////////////////////////////////
+OP91
+	call	INDY
+	bra		STA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x95:				STA
+;zeropage,X STA oper,X 95 2 4 
+;///////////////////////////////////
+OP95
+	call	ZPGX
+	bra		STA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x99:				STA
+;absolute,Y STA oper,Y 99 3 5 
+;///////////////////////////////////
+OP99
+	call	ABSY
+	bra		STA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x9D:				STA
+;absolute,X STA oper,X 9D 3 5 
+;///////////////////////////////////
+OP9D
+	call	ABSX
+	bra		STA_COMMON
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;STX INSTRUCTIONS!!!
 ;**********************************************************************
 ;STX 
 ;Store Index X in Memory 
@@ -2363,12 +2558,45 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;zeropage STX oper 86 2 3 
-;zeropage,Y STX oper,Y 96 2 4 
 ;absolute STX oper 8E 3 4 
+;zeropage,Y STX oper,Y 96 2 4 
+;///////////////////////////////////
+;///////////////////////////////////
+STX_COMMON
+	movf	emulX,W		;IGNORE READED MEMORY POSITION and copy X to W
+	call	writeRAM		;write X to M (ramH and ramL addresses were founded when calling addressing mode)
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
 
+
+
+;///////////////////////////////////
+;OPCODE 0x86:				STX
+;zeropage STX oper
+;///////////////////////////////////
+OP86
+	call	ZPG
+	bra		STX_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x8E:				STX
+;absolute STX oper 
+;///////////////////////////////////
+OP8E
+	call	ABS
+	bra		STX_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x96:				STX
+;zeropage,Y STX oper,Y
+;///////////////////////////////////
+OP96
+	call	ZPGY
+	bra		STX_COMMON
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;STY INSTRUCTIONS!!!
 ;**********************************************************************
 ;STY 
 ;Sore Index Y in Memory 
@@ -2378,12 +2606,46 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;zeropage STY oper 84 2 3 
-;zeropage,X STY oper,X 94 2 4 
 ;absolute STY oper 8C 3 4 
+;zeropage,X STY oper,X 94 2 4 
+;///////////////////////////////////
+;///////////////////////////////////
+STY_COMMON
+	movf	emulY,W			;IGNORE READED MEMORY POSITION and copy Y to W
+	call	writeRAM		;write Y to M (ramH and ramL addresses were founded when calling addressing mode)
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0x84:				STY
+;zeropage STY oper
+;///////////////////////////////////
+OP84
+	call	ZPG
+	bra		STY_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x8C:				STY
+;absolute STY oper
+;///////////////////////////////////
+OP8C
+	call	ABS
+	bra		STY_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x94:				STY
+;zeropage,X STY oper,X
+;///////////////////////////////////
+OP94
+	call	ZPGX
+	bra		STY_COMMON
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;TAX INSTRUCTIONS!!!
 ;**********************************************************************
 ;TAX 
 ;Transfer Accumulator to Index X 
@@ -2393,10 +2655,20 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TAX AA 1 2 
+;///////////////////////////////////
+;OPCODE 0xAA:			TAX	
+;implied TAX
+;///////////////////////////////////
+OPAA
+	movf	emulAC,W		;Do not use movff because it wont affect Z and N flags..
+	movwf	emulX
+	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags	
 
+	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;TAY INSTRUCTIONS!!!
 ;**********************************************************************
 ;TAY 
 ;Transfer Accumulator to Index Y 
@@ -2406,10 +2678,21 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TAY A8 1 2 
+;///////////////////////////////////
+;OPCODE 0xA8:			TAY
+;implied TAY
+;///////////////////////////////////
+OPA8
+	movf	emulAC,W		;Do not use movff because it wont affect Z and N flags..
+	movwf	emulY
+	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags	
+
+	goto	EXECUTE
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;TSX INSTRUCTIONS!!!
 ;**********************************************************************
 ;TSX 
 ;Transfer Stack Pointer to Index X 
@@ -2419,10 +2702,21 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TSX BA 1 2 
+;///////////////////////////////////
+;OPCODE 0xBA:			TSX
+;implied TSX
+;///////////////////////////////////
+OPBA
+	movf	emulSP,W		;Do not use movff because it wont affect Z and N flags..
+	movwf	emulX
+	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags	
+
+	goto	EXECUTE
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;TXA INSTRUCTIONS!!!
 ;**********************************************************************
 ;TXA 
 ;Transfer Index X to Accumulator 
@@ -2432,10 +2726,21 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TXA 8A 1 2 
+;///////////////////////////////////
+;OPCODE 0x8A:			TXA
+;implied TXA
+;///////////////////////////////////
+OP8A
+	movf	emulX,W		;Do not use movff because it wont affect Z and N flags..
+	movwf	emulAC
+	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags	
+
+	goto	EXECUTE
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;TXS INSTRUCTIONS!!!
 ;**********************************************************************
 ;TXS 
 ;Transfer Index X to Stack Register 
@@ -2445,10 +2750,20 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TXS 9A 1 2 
+;///////////////////////////////////
+;OPCODE 0x9A:			TXS
+;implied TXS
+;///////////////////////////////////
+OP9A
+	movf	emulX,W		;Do not use movff because it wont affect Z and N flags..
+	movwf	emulSP
+	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags	
 
+	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;TYA INSTRUCTIONS!!!
 ;**********************************************************************
 ;TYA 
 ;Transfer Index Y to Accumulator 
@@ -2458,13 +2773,38 @@ OP40
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TYA 98 1 2 
+;///////////////////////////////////
+;OPCODE 0x98:			TYA
+;implied TYA
+;///////////////////////////////////
+OP98
+	movf	emulY,W		;Do not use movff because it wont affect Z and N flags..
+	movwf	emulAC
+	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags	
+
+	goto	EXECUTE
 
 
 
-;///////////////////////ADDRESSING MODES/////////////////////////////**********************************
-;///////////////////////ADDRESSING MODES/////////////////////////////**********************************
-;///////////////////////ADDRESSING MODES/////////////////////////////**********************************
-;///////////////////////ADDRESSING MODES/////////////////////////////**********************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+;///////////////////////A D D R E S S I N G    M O D E S/////////////////////////////**********************************
+;///////////////////////A D D R E S S I N G    M O D E S/////////////////////////////**********************************
+;///////////////////////A D D R E S S I N G    M O D E S/////////////////////////////**********************************
+;///////////////////////A D D R E S S I N G    M O D E S/////////////////////////////**********************************
+
 ;///////////////////////
 ;ACUMM MODE:
 ;accumulator
