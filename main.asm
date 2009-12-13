@@ -181,7 +181,46 @@ MODIFY_V_FLAG	MACRO
 		bsf		emul_V
 	ENDM
 
+;/////////////////////////////////
+;PUSH PC TO SOFT STACK
+;/////////////////////////////////
+PUSHPC2STACK	MACRO
+		;lets push PC+2 value on software STACK...
+		movlw	0x01
+		movwf	ramH
+	
+		movff	emulPC+1,aux1	;store high emulPC byte in aux var
+		movff	emulSP,ramL	;load 0x0100 + emulSP address were to write...
+	
+		movlw	0x02		;calculate PC+2 position...
+		addwf	emulPC,W
+		btfss	STATUS,C	;Overflow?
+		incf	aux1		;indicate it in high byte emulPC var
+	
+		call	writeRAM	;Write low emulPC byte in STACK address
+		
+		incf	emulSP,F	;Increment Stack Pointer
 
+		movff	emulSP,ramL	;load 0x0100 + emulSR address were to write...(remember that ramH shoul continue beeing 0x01)
+		movf	aux1,W
+		call	writeRAM	;Write High emulPC byte in STACK address	
+	
+		incf	emulSP,F	;Increment Stack Pointer
+	ENDM
+
+;/////////////////////////////////
+;PUSH SR TO SOFT STACK
+;/////////////////////////////////
+PUSHSR2STACK	MACRO
+		;push emulSR
+		movlw	0x01
+		movwf	ramH
+		movff	emulSP,ramL	;load 0x0100 + emulSR address were to write...
+		movf	emulSR,W	;load Status Register on W
+		call	writeRAM	;Write emulSR in STACK address		
+	
+		incf	emulSP,F	;Increment Stack Pointer
+	ENDM
 
 ;******************************************************************************
 ; Vector de Reset.
@@ -291,31 +330,15 @@ HIGH_OP						;OPCODE is bigger than 0x7F
 
 
 
-;///////////////////////////////////
-;OPCODE SET OF INSTRUCTIONS:
-;///////////////////////////////////
-
-;///////////////////////////////////
-;OPCODE 0x01:	ORA	X, ind
-;///////////////////////////////////
-OP01
-	call	BPX				;execute Indexed Indirect [(BX, X)]
-
-
-ORA_COMMON
-	iorwf	emulAC,F			;store M OR AC in AC
-
-	;finally, set flags
-	bcf		emul_Z
-	btfsc	STATUS,Z
-	bsf		emul_Z
-
-	;I dont know how to interpetate N flag...:( whould this be right?
-	bcf		emul_N
-	btfsc	emulAC,7
-	bsf		emul_N
-
-	goto	EXECUTE
+;///////////////////////////////////*********;///////////////////////////////////
+;///////////////////////////////////*********;///////////////////////////////////
+;///////////////////////////////////*********;///////////////////////////////////
+;///////////////////////////////////*********;///////////////////////////////////
+;S E T   O F    I N S T R U C T I O N S:
+;///////////////////////////////////*********;///////////////////////////////////
+;///////////////////////////////////*********;///////////////////////////////////
+;///////////////////////////////////*********;///////////////////////////////////
+;///////////////////////////////////*********;///////////////////////////////////
 
 ;**********************************************************************
 ;ADC INSTRUCTIONS!!!
@@ -342,7 +365,7 @@ ORA_COMMON
 ADC_COMMON
 	movwf	aux1				;store in temp var
 	btfsc	emul_C				;add carry?
-	incf	aux1,w				;yes...	
+	incf	aux1,W				;yes...	
 	addwf	emulAC,F			;and store result in Acumulator
 
 	;set flags...	
@@ -511,7 +534,7 @@ OP39
 ;absolute,X AND oper,X
 ;///////////////////////////////////
 OP3D
-	call	ABSY
+	call	ABSX
 	bra		AND_COMMON
 
 
@@ -537,12 +560,12 @@ OP3D
 ASL_SEMICOMMON
 	movwf	aux1		;store value in auxiliar variable
 	bcf		STATUS,C	;clean carry 
-	rlcf	aux1,F		;CANT USE RLNCF because it wont affect C bit
+	rlcf	aux1,F		;CANT USE RLNCF because it wont affect C flag
 	
 	;set flags...	
 	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
 	
-	movf	aux1,W
+	movf	aux1,W		;ramL and ramH previously set(when reading M)
 	call	writeRAM	;finally, write new value in address
 	goto	EXECUTE
 ;///////////////////////////////////
@@ -565,7 +588,7 @@ OP06
 ;///////////////////////////////////
 OP0A
 	bcf		STATUS,C		;clean carry 
-	rlcf	emulAC,F		;CANT USE RLNCF because it wont affect C bit
+	rlcf	emulAC,F		;CANT USE RLNCF because it wont affect C flag
 	
 	;set flags...	
 	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
@@ -609,7 +632,7 @@ OP1E
 ;**********************************************************************
 ;///////////////////////////////////
 ;OPCODE 0x90:		BCC
-;relative BCC oper 90 2 2** 
+;relative BCC oper
 ;///////////////////////////////////
 OP90
 	btfsc	emul_C			;Carry clear?
@@ -624,7 +647,7 @@ OP90
 	goto	EXECUTE			;done!
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BCS INSTRUCTIONS!!!
 ;**********************************************************************
 ;BCS 
 ;Branch on Carry Set branch on C = 1 
@@ -636,7 +659,7 @@ OP90
 ;**********************************************************************
 ;///////////////////////////////////
 ;OPCODE 0xB0:		BCS
-;relative BCS oper B0 2 2** 
+;relative BCS oper
 ;///////////////////////////////////
 OPB0
 	btfss	emul_C			;Carry set?
@@ -652,7 +675,7 @@ OPB0
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BEQ INSTRUCTIONS!!!
 ;**********************************************************************
 ;BEQ 
 ;Branch on Result Zero branch on Z = 1 
@@ -664,7 +687,7 @@ OPB0
 ;**********************************************************************
 ;///////////////////////////////////
 ;OPCODE 0xF0:		BEQ
-;relative BEQ oper F0 2 2** 
+;relative BEQ oper
 ;///////////////////////////////////
 OPF0
 	btfss	emul_Z			;Zero set?
@@ -679,7 +702,7 @@ OPF0
 	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BIT INSTRUCTIONS!!!
 ;**********************************************************************
 ;BIT 
 ;Test Bits in Memory with Accumulator bits 7 and 6 of operand are transfered to bit 7 and 6 of SR (N,V); 
@@ -716,7 +739,7 @@ BIT_COMMON
 
 ;///////////////////////////////////
 ;OPCODE 0x24:		BIT
-;zeropage BIT oper 24 2 3 
+;zeropage BIT oper
 ;///////////////////////////////////
 OP24
 	call	ZPG
@@ -724,14 +747,14 @@ OP24
 
 ;///////////////////////////////////
 ;OPCODE 0x2C:		BIT
-;absolute BIT oper 2C 3 4 
+;absolute BIT oper
 ;///////////////////////////////////
 OP2C
 	call	ABS
 	bra		BIT_COMMON
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BMI INSTRUCTIONS!!!
 ;**********************************************************************
 ;BMI 
 ;Branch on Result Minus 
@@ -743,10 +766,8 @@ OP2C
 ;relative BMI oper 30 2 2** 
 ;**********************************************************************
 ;///////////////////////////////////
-;///////////////////////////////////
-;///////////////////////////////////
 ;OPCODE 0x30:		BMI		
-;relative BMI oper 30 2 2** 
+;relative BMI oper
 ;///////////////////////////////////
 OP30	
 	btfss	emul_N			;Negative set?
@@ -762,7 +783,7 @@ OP30
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BNE INSTRUCTIONS!!!
 ;**********************************************************************
 ;BNE 
 ;Branch on Result not Zero 
@@ -774,10 +795,8 @@ OP30
 ;relative BNE oper D0 2 2** 
 ;**********************************************************************
 ;///////////////////////////////////
-;///////////////////////////////////
-;///////////////////////////////////
-;OPCODE 0xD0:		BMI		
-;relative BNE oper D0 2 2** 
+;OPCODE 0xD0:		BNE		
+;relative BNE oper
 ;///////////////////////////////////
 OPD0	
 	btfsc	emul_Z			;Zero clear?
@@ -793,7 +812,7 @@ OPD0
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BPL INSTRUCTIONS!!!
 ;**********************************************************************
 ;BPL 
 ;Branch on Result Plus 
@@ -805,10 +824,8 @@ OPD0
 ;relative BPL oper 10 2 2** 
 ;**********************************************************************
 ;///////////////////////////////////
-;///////////////////////////////////
-;///////////////////////////////////
-;OPCODE 0x10:		BMI		
-;relative BPL oper 10 2 2** 
+;OPCODE 0x10:		BPL		
+;relative BPL oper
 ;///////////////////////////////////
 OP10	
 	btfsc	emul_N			;Negative clear?
@@ -824,7 +841,7 @@ OP10
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BRK INSTRUCTIONS!!!
 ;**********************************************************************
 ;BRK 
 ;Force Break 
@@ -835,23 +852,55 @@ OP10
 ;implied BRK 00 1 7 
 ;**********************************************************************
 ;///////////////////////////////////
+;OPCODE 0x00:		BRK
+;implied BRK
 ;///////////////////////////////////
+OP00
+	PUSHPC2STACK		;MACRO THAT PUSHs PC TO SOFTWARE STACK
+	PUSHSR2STACK		;MACRO THAT PUSHs SR TO SOFTWARE STACK
 
+	;load Software interrupt address in PC
+	movlw	0xFF
+	movwf	emulPC+1	;load 0xFFXX address
+
+	movlw	0xFE
+	movwf	emulPC		;load 0xFFFE address
+
+	bsf		emul_I		;indicate Software Interrupt occur
+	
+	goto	EXECUTE		;done
 
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BVC INSTRUCTIONS!!!
 ;**********************************************************************
 ;BVC 
-;Branch on Overflow Clear branch on V = 0 
+;Branch on Overflow Clear 
+;branch on V = 0 
 ;N Z C I D V 
 ;- - - - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;relative BVC oper 50 2 2** 
+;///////////////////////////////////
+;OPCODE 0x50:		BVC
+;relative BVC oper
+;///////////////////////////////////
+OP50	
+	btfsc	emul_V			;Overflow clear?
+	goto	EXECUTE
+
+	movf	emulOP+1,W		;Yes. Branch!
+	addwf	emulPC,F
+	btfsc	STATUS,C		;page overflow?
+	incf	emulPC+1,F		;yes, increase page number	
+
+	MODIFY_FLAGS	(0)		;no flags affected
+	goto	EXECUTE
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;BVS INSTRUCTIONS!!!
 ;**********************************************************************
 ;BVS 
 ;Branch on Overflow 
@@ -861,9 +910,25 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;relative BVC oper 70 2 2** 
+;///////////////////////////////////
+;OPCODE 0x70:		BVS		
+;relative BVC oper
+;///////////////////////////////////
+OP70
+	btfss	emul_V			;Overflow set?
+	goto	EXECUTE
+
+	movf	emulOP+1,W		;Yes. Branch!
+	addwf	emulPC,F
+	btfsc	STATUS,C		;page overflow?
+	incf	emulPC+1,F		;yes, increase page number	
+
+	MODIFY_FLAGS	(0)		;no flags affected
+	goto	EXECUTE
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;CLC INSTRUCTIONS!!!
 ;**********************************************************************
 ;CLC 
 ;Clear Carry Flag 0 -> C 
@@ -872,21 +937,37 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied CLC 18 1 2 
+;///////////////////////////////////
+;OPCODE 0x18:		CLC
+;implied CLC
+;///////////////////////////////////
+OP18
+	bcf		emul_C
+	goto	EXECUTE
+	
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;CLD INSTRUCTIONS!!!
 ;**********************************************************************
 ;CLD 
 ;Clear Decimal Mode 
 ;0 -> D 
-;N Z C I D V
-; - - - - 0 - 
+;N Z C I D V 
+;- - - - 0 - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied CLD D8 1 2 
+;///////////////////////////////////
+;OPCODE 0xD8:		CLD	
+;implied CLD
+;///////////////////////////////////
+OPD8
+	bcf		emul_D
+	goto	EXECUTE
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;CLI INSTRUCTIONS!!!
 ;**********************************************************************
 ;CLI 
 ;Clear Interrupt Disable Bit 0 -> I 
@@ -895,9 +976,17 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied CLI 58 1 2 
+;///////////////////////////////////
+;OPCODE 0x58:		CLI
+;implied CLI
+;///////////////////////////////////
+OP58
+	bcf		emul_I
+	goto	EXECUTE
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;CLV INSTRUCTIONS!!!
 ;**********************************************************************
 ;CLV 
 ;Clear Overflow Flag 0 -> V 
@@ -906,9 +995,17 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied CLV B8 1 2 
+;///////////////////////////////////
+;OPCODE 0xB8:		CLV
+;implied CLV
+;///////////////////////////////////
+OPB8
+	bcf		emul_V
+	goto	EXECUTE
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;CMP INSTRUCTIONS!!!
 ;**********************************************************************
 ;CMP 
 ;Compare Memory with Accumulator 
@@ -917,17 +1014,91 @@ OP10
 ;+ + + - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;immidiate CMP #oper C9 2 2 
-;zeropage CMP oper C5 2 3 
-;zeropage,X CMP oper,X D5 2 4 
-;absolute CMP oper CD 3 4 
-;absolute,X CMP oper,X DD 3 4* 
-;absolute,Y CMP oper,Y D9 3 4* 
 ;(indirect,X) CMP (oper,X) C1 2 6 
+;zeropage CMP oper C5 2 3 
+;immidiate CMP #oper C9 2 2 
+;absolute CMP oper CD 3 4 
 ;(indirect),Y CMP (oper),Y D1 2 5* 
+;zeropage,X CMP oper,X D5 2 4 
+;absolute,Y CMP oper,Y D9 3 4* 
+;absolute,X CMP oper,X DD 3 4* 
+;///////////////////////////////////
+;///////////////////////////////////
+CMP_COMMON
+	subwf	emulAC,W		;substract M from AC
+	MODIFY_FLAGS	(FLAG_Z | FLAG_C | FLAG_N) ;modify flags
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+;///////////////////////////////////
+;OPCODE 0xC1:		CMP
+;(indirect,X) CMP (oper,X)
+;///////////////////////////////////
+OPC1
+	call	BPX
+	bra		CMP_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xC5:		CMP
+;zeropage CMP oper
+;///////////////////////////////////
+OPC5
+	call	ZPG
+	bra		CMP_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xC9:		CMP
+;immidiate CMP #oper
+;///////////////////////////////////
+OPC9
+	call	IMM
+	bra		CMP_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xCD:		CMP
+;absolute CMP oper
+;///////////////////////////////////
+OPCD
+	call	ABS
+	bra		CMP_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xD1:		CMP
+;(indirect),Y CMP (oper),Y
+;///////////////////////////////////
+OPD1
+	call	INDY
+	bra		CMP_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xD5:		CMP
+;zeropage,X CMP oper,X
+;///////////////////////////////////
+OPD5
+	call	ZPGX
+	bra		CMP_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xD9:		CMP
+;absolute,Y CMP oper,Y
+;///////////////////////////////////
+OPD9
+	call	ABSY
+	bra		CMP_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xDD:		CMP
+;absolute,X CMP oper,X
+;///////////////////////////////////
+OPDD
+	call	ABSX
+	bra		CMP_COMMON
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;CPX INSTRUCTIONS!!!
 ;**********************************************************************
 ;CPX 
 ;Compare Memory and Index X 
@@ -939,9 +1110,44 @@ OP10
 ;immidiate CPX #oper E0 2 2 
 ;zeropage CPX oper E4 2 3 
 ;absolute CPX oper EC 3 4 
+;///////////////////////////////////
+;///////////////////////////////////
+CPX_COMMON
+	subwf	emulX,W		;substract M from X
+	MODIFY_FLAGS	(FLAG_Z | FLAG_C | FLAG_N) ;modify flags
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0xE0:		CPX
+;immidiate CPX #oper
+;///////////////////////////////////
+OPE0
+	call	IMM
+	bra		CPX_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xE4:		CPX
+;zeropage CPX oper
+;///////////////////////////////////
+OPE4
+	call	ZPG
+	bra		CPX_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xEC:		CPX
+;absolute CPX oper
+;///////////////////////////////////
+OPEC
+	call	ABS
+	bra		CPX_COMMON
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;CPY INSTRUCTIONS!!!
 ;**********************************************************************
 ;CPY 
 ;Compare Memory and Index Y 
@@ -953,9 +1159,44 @@ OP10
 ;immidiate CPY #oper C0 2 2 
 ;zeropage CPY oper C4 2 3 
 ;absolute CPY oper CC 3 4 
+;///////////////////////////////////
+;///////////////////////////////////
+CPY_COMMON
+	subwf	emulY,W		;substract M from Y
+	MODIFY_FLAGS	(FLAG_Z | FLAG_C | FLAG_N) ;modify flags
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0xE0:		CPY
+;immidiate CPY #oper
+;///////////////////////////////////
+OPC0
+	call	IMM
+	bra		CPY_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xE4:		CPY
+;zeropage CPY oper
+;///////////////////////////////////
+OPC4
+	call	ZPG
+	bra		CPY_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xEC:		CPY
+;absolute CPY oper
+;///////////////////////////////////
+OPCC
+	call	ABS
+	bra		CPY_COMMON
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;DEC INSTRUCTIONS!!!
 ;**********************************************************************
 ;DEC 
 ;Decrement Memory by One 
@@ -965,12 +1206,55 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;zeropage DEC oper C6 2 5 
-;zeropage,X DEC oper,X D6 2 6 
 ;absolute DEC oper CE 3 3 
+;zeropage,X DEC oper,X D6 2 6 
 ;absolute,X DEC oper,X DE 3 7 
+;///////////////////////////////////
+;///////////////////////////////////
+DEC_COMMON
+	movwf	aux1
+	decf	aux1,W
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+
+	call	writeRAM		;write Memory position with new value
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+;///////////////////////////////////
+;OPCODE 0xC6:		DEC
+;zeropage DEC oper
+;///////////////////////////////////
+OPC6
+	call	ZPG
+	bra		DEC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xCE:		DEC
+;absolute DEC oper 
+;///////////////////////////////////
+OPCE
+	call	ABS
+	bra		DEC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xD6:		DEC
+;zeropage,X DEC oper,X 
+;///////////////////////////////////
+OPD6
+	call	ZPGX
+	bra		DEC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xDE:		DEC
+;absolute,X DEC oper,X 
+;///////////////////////////////////
+OPDE
+	call	ABSY
+	bra		DEC_COMMON
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;DEX INSTRUCTIONS!!!
 ;**********************************************************************
 ;DEX 
 ;Decrement Index X by One 
@@ -979,10 +1263,19 @@ OP10
 ;+ + - - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;implied DEC CA 1 2 
+;implied DEX CA 1 2 
+;///////////////////////////////////
+;OPCODE 0xCA:		DEX
+;implied DEX 
+;///////////////////////////////////
+OPCA
+	decf	emulX,F		;decrement X
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+	goto	EXECUTE
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;DEY INSTRUCTIONS!!!
 ;**********************************************************************
 ;DEY 
 ;Decrement Index Y by One 
@@ -991,10 +1284,19 @@ OP10
 ;+ + - - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;implied DEC 88 1 2 
+;implied DEY 88 1 2 
+;///////////////////////////////////
+;OPCODE 0x88:		DEY
+;implied DEY
+;///////////////////////////////////
+OP88
+	decf	emulY,F		;decrement Y
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+	goto	EXECUTE
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;EOR INSTRUCTIONS!!!
 ;**********************************************************************
 ;EOR 
 ;Exclusive-OR Memory with Accumulator 
@@ -1003,17 +1305,93 @@ OP10
 ;+ + - - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;immidiate EOR #oper 49 2 2 
-;zeropage EOR oper 45 2 3 
-;zeropage,X EOR oper,X 55 2 4 
-;absolute EOR oper 4D 3 4 
-;absolute,X EOR oper,X 5D 3 4* 
-;absolute,Y EOR oper,Y 59 3 4* 
 ;(indirect,X) EOR (oper,X) 41 2 6 
-;(indirect),Y EOR (oper),Y 51 2 5* 
+;zeropage EOR oper 45 2 3 
+;immidiate EOR #oper 49 2 2 
+;absolute EOR oper 4D 3 4 
+;(indirect),Y EOR (oper),Y 51 2 5*
+;zeropage,X EOR oper,X 55 2 4 
+;absolute,Y EOR oper,Y 59 3 4* 
+;absolute,X EOR oper,X 5D 3 4
+;///////////////////////////////////
+;///////////////////////////////////
+EOR_COMMON
+	xorwf	emulAC,F
+
+	;set flags...	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z)
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+;///////////////////////////////////
+;OPCODE 0x41:	EOR
+;(indirect,X) EOR (oper,X) 
+;///////////////////////////////////
+OP41
+	call	BPX
+	bra		EOR_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x45:	EOR
+;zeropage EOR oper
+;///////////////////////////////////
+OP45
+	call	ZPG
+	bra		EOR_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x49:	EOR
+;immidiate EOR #oper
+;///////////////////////////////////
+OP49
+	call	IMM
+	bra		EOR_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x4D:	EOR
+;absolute EOR oper 
+;///////////////////////////////////
+OP4D
+	call	ABS
+	bra		EOR_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x51:	EOR
+;(indirect),Y EOR (oper),Y
+;///////////////////////////////////
+OP51
+	call	INDY
+	bra		EOR_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x55:	EOR
+;zeropage,X EOR oper,X 
+;///////////////////////////////////
+OP55
+	call	ZPGX
+	bra		EOR_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x59:	EOR
+;absolute,Y EOR oper,Y 
+;///////////////////////////////////
+OP59
+	call	ABSY
+	bra		EOR_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x5D:	EOR
+;absolute,X EOR oper,X 
+;///////////////////////////////////
+OP5D
+	call	ABSX
+	bra		EOR_COMMON
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;INC INSTRUCTIONS!!!
 ;**********************************************************************
 ;INC 
 ;Increment Memory by One 
@@ -1023,12 +1401,55 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;zeropage INC oper E6 2 5 
-;zeropage,X INC oper,X F6 2 6 
 ;absolute INC oper EE 3 6 
+;zeropage,X INC oper,X F6 2 6 
 ;absolute,X INC oper,X FE 3 7 
+;///////////////////////////////////
+;///////////////////////////////////
+INC_COMMON
+	movwf	aux1
+	incf	aux1,W
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+
+	call	writeRAM		;write Memory position with new value
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+;///////////////////////////////////
+;OPCODE 0xE6:		INC
+;zeropage INC oper
+;///////////////////////////////////
+OPE6
+	call	ZPG
+	bra		INC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xE:		INC
+;absolute INC oper
+;///////////////////////////////////
+OPEE
+	call	ABS
+	bra		INC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xF6:		INC
+;zeropage,X INC oper,X
+;///////////////////////////////////
+OPF6
+	call	ZPGX
+	bra		INC_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xFE:		INC
+;absolute,X INC oper,X
+;///////////////////////////////////
+OPFE
+	call	ABSY
+	bra		INC_COMMON
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;INX INSTRUCTIONS!!!
 ;**********************************************************************
 ;INX 
 ;Increment Index X by One 
@@ -1038,9 +1459,17 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied INX E8 1 2 
+;///////////////////////////////////
+;OPCODE 0xE8:		INX
+;implied INX E8 1 2
+;///////////////////////////////////
+OPE8
+	incf	emulX,F		;increment X
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;INY INSTRUCTIONS!!!
 ;**********************************************************************
 ;INY 
 ;Increment Index Y by One 
@@ -1050,9 +1479,17 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied INY C8 1 2 
+;///////////////////////////////////
+;OPCODE 0xC8:		INY
+;implied INY C8 1 2 
+;///////////////////////////////////
+OPC8
+	incf	emulY,F		;increment Y
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+	goto	EXECUTE
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;JMP INSTRUCTIONS!!!
 ;**********************************************************************
 ;JMP 
 ;Jump to New Location 
@@ -1062,21 +1499,59 @@ OP10
 ;-------------------------------------------- 
 ;absolute JMP oper 4C 3 3 
 ;indirect JMP (oper) 6C 3 5 
+;///////////////////////////////////
+;///////////////////////////////////
+JMP_COMMON
+	movff	emulOP+1,emulPC
+	movff	emulOP+2,emulPC+1		;set emulPC with address in instruction
+	goto	EXECUTE
+
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+;///////////////////////////////////
+;OPCODE 0x4C:		JMP
+;absolute JMP oper
+;///////////////////////////////////
+OP4C	
+	call	ABS
+	bra		JMP_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x6C:		JMP
+;indirect JMP (oper)
+;///////////////////////////////////
+OP6C
+	call	IND
+	bra		JMP_COMMON
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;JSR INSTRUCTIONS!!!
 ;**********************************************************************
 ;JSR 
-;Jump to New Location Saving Return Address 
+;Jump to New Location Saving Return Address
 ;push (PC+2),  N Z C I D V 
 ;(PC+1) -> PCL - - - - - - 
 ;(PC+2) -> PCH 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;absolute JSR oper 20 3 6 
+;///////////////////////////////////
+;OPCODE 0x20:		
+;absolute JSR oper
+;///////////////////////////////////
+OP20
+	call	ABS
+	PUSHPC2STACK		;MACRO THAT PUSHs PC TO SOFTWARE STACK
+
+	movff	emulOP+1,emulPC			;(PC+1) -> PCL
+	movff	emulOP+2,emulPC+1		;(PC+2) -> PCH 
+	goto	EXECUTE
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;LDA INSTRUCTIONS!!!
 ;**********************************************************************
 ;LDA 
 ;Load Accumulator with Memory 
@@ -1085,17 +1560,96 @@ OP10
 ;+ + - - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;immidiate LDA #oper A9 2 2 
-;zeropage LDA oper A5 2 3 
-;zeropage,X LDA oper,X B5 2 4 
-;absolute LDA oper AD 3 4 
-;absolute,X LDA oper,X BD 3 4* 
-;absolute,Y LDA oper,Y B9 3 4* 
 ;(indirect,X) LDA (oper,X) A1 2 6 
+;zeropage LDA oper A5 2 3 
+;immidiate LDA #oper A9 2 2 
+;absolute LDA oper AD 3 4 
 ;(indirect),Y LDA (oper),Y B1 2 5* 
+;zeropage,X LDA oper,X B5 2 4 
+;absolute,Y LDA oper,Y B9 3 4* 
+;absolute,X LDA oper,X BD 3 4* 
+;///////////////////////////////////
+;///////////////////////////////////
+LDA_COMMON
+	movwf	emulAC		;store readed value on AC
+	movf	emulAC,F	;force Z and N flags to be modified
+
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0xA1:		LDA
+;(indirect,X) LDA (oper,X) A1 2 6 
+;///////////////////////////////////
+OPA1
+	call	BPX
+	bra	LDA_COMMON
+
+
+;///////////////////////////////////
+;OPCODE 0xA5:		LDA
+;zeropage LDA oper A5 2 3 
+;///////////////////////////////////
+OPA5
+	call	ZPG
+	bra	LDA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xA9:		LDA
+;immidiate LDA #oper A9 2 2 
+;///////////////////////////////////
+OPA9
+	call	IMM
+	bra	LDA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xAD:		LDA
+;absolute LDA oper AD 3 4 
+;///////////////////////////////////
+OPAD
+	call	ABS
+	bra	LDA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xB1:		LDA
+;(indirect),Y LDA (oper),Y
+;///////////////////////////////////
+OPB1
+	call	INDY
+	bra	LDA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xB5:		LDA
+;zeropage,X LDA oper,X
+;///////////////////////////////////
+OPB5
+	call	ZPGX
+	bra	LDA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xB9:		LDA
+;absolute,Y LDA oper,Y
+;///////////////////////////////////
+OPB9
+	call	ABSY
+	bra	LDA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xBD:		LDA
+;absolute,X LDA oper,X
+;///////////////////////////////////
+OPBD
+	call	ABSX
+	bra	LDA_COMMON
+
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;LDX INSTRUCTIONS!!!
 ;**********************************************************************
 ;LDX 
 ;Load Index X with Memory 
@@ -1106,12 +1660,65 @@ OP10
 ;-------------------------------------------- 
 ;immidiate LDX #oper A2 2 2 
 ;zeropage LDX oper A6 2 3 
-;zeropage,Y LDX oper,Y B6 2 4 
 ;absolute LDX oper AE 3 4 
+;zeropage,Y LDX oper,Y B6 2 4 
 ;absolute,Y LDX oper,Y BE 3 4* 
+;///////////////////////////////////
+;///////////////////////////////////
+LDX_COMMON
+	movwf	emulX
+	movf	emulX,F	;force flags Z and N to be modified
+
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0xA2:			LDX
+;immidiate LDX #oper
+;///////////////////////////////////
+OPA2
+	call	IMM
+	bra	LDX_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xA6:			LDX
+;zeropage LDX oper
+;///////////////////////////////////
+OPA6
+	call	ZPG
+	bra	LDX_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xB6:			LDX
+;zeropage,Y LDX oper,Y
+;///////////////////////////////////
+OPB6
+	call	ZPGY
+	bra	LDX_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xAE:			LDX
+;absolute LDX oper
+;///////////////////////////////////
+OPAE
+	call	ABS
+	bra	LDX_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xBE:			LDX
+;absolute,Y LDX oper,Y
+;///////////////////////////////////
+OPBE
+	call	ABSY
+	bra	LDX_COMMON
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;LDY INSTRUCTIONS!!!
 ;**********************************************************************
 ;LDY 
 ;Load Index Y with Memory 
@@ -1122,25 +1729,140 @@ OP10
 ;-------------------------------------------- 
 ;immidiate LDY #oper A0 2 2 
 ;zeropage LDY oper A4 2 3 
-;zeropage,X LDY oper,X B4 2 4 
 ;absolute LDY oper AC 3 4 
+;zeropage,X LDY oper,X B4 2 4 
 ;absolute,X LDY oper,X BC 3 4* 
+;///////////////////////////////////
+;///////////////////////////////////
+LDY_COMMON
+	movwf	emulY
+	movf	emulY,F	;force flags Z and N to be modified
+
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z) ;modify flags
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0xA0:			LDY
+;immidiate LDY #oper A0 2 2 
+;///////////////////////////////////
+OPA0
+	call	IMM
+	bra	LDY_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xA4:			LDY
+;zeropage LDY oper A4 2 3 
+;///////////////////////////////////
+OPA4
+	call	ZPG
+	bra	LDY_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xAC:			LDY
+;absolute LDY oper AC 3 4 
+;///////////////////////////////////
+OAC
+	call	ZPGY
+	bra	LDY_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xB4:			LDY
+;zeropage,X LDY oper,X B4 2 4 
+;///////////////////////////////////
+OPB4
+	call	ABS
+	bra	LDY_COMMON
+
+;///////////////////////////////////
+;OPCODE 0xBC:			LDY
+;absolute,X LDY oper,X BC 3 4* 
+;///////////////////////////////////
+OPBC
+	call	ABSY
+	bra	LDY_COMMON
+
 
 ;**********************************************************************
-; INSTRUCTIONS!!!
+;LSR INSTRUCTIONS!!!
 ;**********************************************************************
 ;LSR 
 ;Shift One Bit Right 
 ;(Memory or Accumulator) 0 -> [76543210] -> C 
 ;N Z C I D V 
-;- + + - - - 
+;+ + + - - - //DOCUMENTATION BUG(http://www.masswerk.at/6502/6502_instruction_set.html says - + + - - -)
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;accumulator LSR A 4A 1 2 
 ;zeropage LSR oper 46 2 5 
-;zeropage,X LSR oper,X 56 2 6 
+;accumulator LSR A 4A 1 2 
 ;absolute LSR oper 4E 3 6 
+;zeropage,X LSR oper,X 56 2 6 
 ;absolute,X LSR oper,X 5E 3 7 
+;///////////////////////////////////
+;///////////////////////////////////
+LSR_SEMICOMMON
+	movwf	aux1		;store value in auxiliar variable
+	bcf		STATUS,C	;clean carry 
+	rrcf	aux1,F		;CANT USE RRNCF because it wont affect C flag
+	
+	;set flags...	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
+	
+	movf	aux1,W		;ramL and ramH previously set(when reading M)
+	call	writeRAM	;finally, write new value in address
+	goto	EXECUTE	
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+;///////////////////////////////////
+;OPCODE 0x46:				LSR
+;zeropage LSR oper
+;///////////////////////////////////
+OP46
+	call	ZPG
+	bra		LSR_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x4A:				LSR
+;accumulator LSR A
+;///////////////////////////////////
+OP4A
+	bcf		STATUS,C		;clean carry 
+	rrcf	emulAC,F		;CANT USE RRNCF because it wont affect C flag
+	
+	;set flags...	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
+	goto	EXECUTE
+
+;///////////////////////////////////
+;OPCODE 0x4E:				LSR
+;absolute LSR oper
+;///////////////////////////////////
+OP4E
+	call	ABS
+	bra		LSR_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x56:				LSR
+;zeropage,X LSR oper,X
+;///////////////////////////////////
+OP56
+	call	ZPGX
+	bra		LSR_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x5E:				LSR
+;absolute,X LSR oper,X
+;///////////////////////////////////
+OP5E
+	call	ABSX
+	bra		LSR_SEMICOMMON
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1152,6 +1874,13 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied NOP EA 1 2 
+;///////////////////////////////////
+;OPCODE 0xEA:			NOP
+;implied NOP
+;///////////////////////////////////
+OPEA
+	goto	EXECUTE
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1163,14 +1892,90 @@ OP10
 ;+ + - - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;immidiate ORA #oper 09 2 2 
-;zeropage ORA oper 05 2 3 
-;zeropage,X ORA oper,X 15 2 4 
-;absolute ORA oper 0D 3 4 
-;absolute,X ORA oper,X 1D 3 4* 
-;absolute,Y ORA oper,Y 19 3 4* 
 ;(indirect,X) ORA (oper,X) 01 2 6 
+;zeropage ORA oper 05 2 3 
+;immidiate ORA #oper 09 2 2 
 ;(indirect),Y ORA (oper),Y 11 2 5* 
+;absolute ORA oper 0D 3 4 
+;zeropage,X ORA oper,X 15 2 
+;absolute,Y ORA oper,Y 19 3 4* 
+;absolute,X ORA oper,X 1D 3 4* 
+;///////////////////////////////////
+;///////////////////////////////////
+ORA_COMMON
+	iorwf	emulAC,F
+
+	;set flags...	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z)
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+;///////////////////////////////////
+;OPCODE 0x01:	ORA
+;(indirect,X) ORA (oper,X)
+;///////////////////////////////////
+OP01
+	call	BPX
+	bra		ORA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x05:	ORA
+;zeropage ORA oper
+;///////////////////////////////////
+OP05
+	call	ZPG
+	bra		ORA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x09:	ORA
+;immidiate ORA #oper
+;///////////////////////////////////
+OP09
+	call	IMM
+	bra		ORA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x11:	ORA
+;(indirect),Y ORA (oper),Y
+;///////////////////////////////////
+OP11
+	call	ABS
+	bra		ORA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x0D:	ORA
+;absolute ORA oper
+;///////////////////////////////////
+OP0D
+	call	INDY
+	bra		ORA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x15:	ORA
+;zeropage,X ORA oper,X
+;///////////////////////////////////
+OP15
+	call	ZPGX
+	bra		ORA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x19:	ORA
+;absolute,Y ORA oper,Y
+;///////////////////////////////////
+OP19
+	call	ABSY
+	bra		ORA_COMMON
+
+;///////////////////////////////////
+;OPCODE 0x1D:	ORA
+;absolute,X ORA oper,X
+;///////////////////////////////////
+OP1D
+	call	ABSX
+	bra		ORA_COMMON
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1183,6 +1988,14 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied PHA 48 1 3 
+;///////////////////////////////////
+;OPCODE 0x48:			PHA
+;implied PHA
+;///////////////////////////////////
+OP48
+	PUSHPC2STACK		;MACRO THAT PUSHs PC TO SOFTWARE STACK
+	goto		EXECUTE
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1195,6 +2008,13 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied PHP 08 1 3 
+;///////////////////////////////////
+;OPCODE 0x08:			PHP
+;implied PHP
+;///////////////////////////////////
+OP08
+	PUSHSR2STACK		;MACRO THAT PUSHs SR TO SOFTWARE STACK
+	goto		EXECUTE
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1207,6 +2027,22 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied PLA 68 1 4 
+;///////////////////////////////////
+;OPCODE 0x68:			PLA
+;implied PLA
+;///////////////////////////////////
+OP68
+	movlw	0x01
+	movwf	ramH	;point to 0x01XX
+	
+	movf	emulSP,W	;point to 0x0100 + emulSP
+	call	readRAM
+
+	movwf	emulAC		;save value in AC
+
+	decf	emulSP,F	;decrement SP
+
+	goto	EXECUTE
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1219,6 +2055,22 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied PHP 28 1 4 
+;///////////////////////////////////
+;OPCODE 0x28:			PLP
+;implied PLP
+;///////////////////////////////////
+OP28
+	movlw	0x01
+	movwf	ramH	;point to 0x01XX
+	
+	movf	emulSP,W	;point to 0x0100 + emulSP
+	call	readRAM
+
+	movwf	emulSR		;save value in SR
+
+	decf	emulSP,F	;decrement SP
+
+	goto	EXECUTE
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1230,11 +2082,79 @@ OP10
 ;+ + + - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;accumulator ROL A 2A 1 2 
 ;zeropage ROL oper 26 2 5 
-;zeropage,X ROL oper,X 36 2 6 
+;accumulator ROL A 2A 1 2 
 ;absolute ROL oper 2E 3 6 
+;zeropage,X ROL oper,X 36 2 6 
 ;absolute,X ROL oper,X 3E 3 7 
+;///////////////////////////////////
+;///////////////////////////////////
+ROL_SEMICOMMON
+	movwf	aux1			;store value in auxiliar variable
+	bcf		STATUS,C		;clean carry 
+	btfsc	emul_C			;test emul Carry
+	bsf		STATUS,C		;set carry 	
+
+	rlcf	aux1,F			;CANT USE RLNCF because it wont affect C flag
+	
+	;set flags...	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
+	
+	movf	aux1,W		;ramL and ramH previously set(when reading M)
+	call	writeRAM	;finally, write new value in address
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+
+;///////////////////////////////////
+;OPCODE 0x26:		ROL
+;zeropage ROL oper 26 2 5 
+;///////////////////////////////////
+OP26
+	call	ZPG
+	bra		ROL_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x2A:		ROL
+;accumulator ROL A 2A 1 2 
+;///////////////////////////////////
+OP2A
+	bcf		STATUS,C		;clean carry 
+	btfsc	emul_C			;test emul Carry
+	bsf		STATUS,C		;set carry 	
+	
+	rlcf	emulAC,F		;CANT USE RLNCF because it wont affect C flag
+	
+	;set flags...	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
+	goto	EXECUTE
+
+;///////////////////////////////////
+;OPCODE 0x2E:		ROL
+;absolute ROL oper 2E 3 6 
+;///////////////////////////////////
+OP2E
+	call	ABS
+	bra		ROL_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x36:		ROL
+;zeropage,X ROL oper,X 36 2 6 
+;///////////////////////////////////
+OP36
+	call	ZPGX
+	bra		ROL_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x3E:		ROL
+;absolute,X ROL oper,X 3E 3 7 
+;///////////////////////////////////
+OP3E
+	call	ABSX
+	bra		ROL_SEMICOMMON
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1246,11 +2166,80 @@ OP10
 ;+ + + - - - 
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
-;accumulator ROR A 6A 1 2 
 ;zeropage ROR oper 66 2 5 
-;zeropage,X ROR oper,X 76 2 6 
+;accumulator ROR A 6A 1 2 
 ;absolute ROR oper 6E 3 6 
+;zeropage,X ROR oper,X 76 2 6 
 ;absolute,X ROR oper,X 7E 3 7 
+;///////////////////////////////////
+;///////////////////////////////////
+ROR_SEMICOMMON
+	movwf	aux1			;store value in auxiliar variable
+	bcf		STATUS,C		;clean carry 
+	btfsc	emul_C			;test emul Carry
+	bsf		STATUS,C		;set carry 	
+
+	rrcf	aux1,F			;CANT USE RRNCF because it wont affect C flag
+	
+	;set flags...	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
+	
+	movf	aux1,W		;ramL and ramH previously set(when reading M)
+	call	writeRAM	;finally, write new value in address
+	goto	EXECUTE
+;///////////////////////////////////
+;///////////////////////////////////
+
+
+
+
+;///////////////////////////////////
+;OPCODE 0x66:		ROR
+;zeropage ROR oper
+;///////////////////////////////////
+OP66
+	call	ZPG
+	bra		ROR_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x6A:		ROR
+;accumulator ROR A
+;///////////////////////////////////
+OP6A
+	bcf		STATUS,C		;clean carry 
+	btfsc	emul_C			;test emul Carry
+	bsf		STATUS,C		;set carry 	
+	
+	rrcf	emulAC,F		;CANT USE RRNCF because it wont affect C flag
+	
+	;set flags...	
+	MODIFY_FLAGS	(FLAG_N | FLAG_Z | FLAG_C)
+	goto	EXECUTE
+
+;///////////////////////////////////
+;OPCODE 0x6E:		ROR
+;absolute ROR oper
+;///////////////////////////////////
+OP6E
+	call	ABS
+	bra		ROR_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x76:		ROR
+;zeropage,X ROR oper,X
+;///////////////////////////////////
+OP76
+	call	ZPGX
+	bra		ROR_SEMICOMMON
+
+;///////////////////////////////////
+;OPCODE 0x7E:		ROR
+;absolute,X ROR oper,X
+;///////////////////////////////////
+OP7E
+	call	ABSX
+	bra		ROR_SEMICOMMON
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1263,6 +2252,14 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied RTI 40 1 6 
+;///////////////////////////////////
+;OPCODE 0x40:			RTI			
+;implied RTI
+;///////////////////////////////////
+OP40
+	PUSHSR2STACK		;MACRO THAT PUSHs SR TO SOFTWARE STACK	
+	PUSHPC2STACK		;MACRO THAT PUSHs PC TO SOFTWARE STACK
+	goto	EXECUTE
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1275,6 +2272,7 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied RTS 60 1 6 
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1295,6 +2293,7 @@ OP10
 ;(indirect,X) SBC (oper,X) E1 2 6 
 ;(indirect),Y SBC (oper),Y F1 2 5* 
 
+
 ;**********************************************************************
 ; INSTRUCTIONS!!!
 ;**********************************************************************
@@ -1306,6 +2305,7 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied SEC 38 1 2 
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1319,6 +2319,7 @@ OP10
 ;-------------------------------------------- 
 ;implied SED F8 1 2 
 
+
 ;**********************************************************************
 ; INSTRUCTIONS!!!
 ;**********************************************************************
@@ -1330,6 +2331,7 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied SEI 78 1 2 
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1349,6 +2351,7 @@ OP10
 ;(indirect,X) STA (oper,X) 81 2 6 
 ;(indirect),Y STA (oper),Y 91 2 6 
 
+
 ;**********************************************************************
 ; INSTRUCTIONS!!!
 ;**********************************************************************
@@ -1362,6 +2365,7 @@ OP10
 ;zeropage STX oper 86 2 3 
 ;zeropage,Y STX oper,Y 96 2 4 
 ;absolute STX oper 8E 3 4 
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1377,6 +2381,7 @@ OP10
 ;zeropage,X STY oper,X 94 2 4 
 ;absolute STY oper 8C 3 4 
 
+
 ;**********************************************************************
 ; INSTRUCTIONS!!!
 ;**********************************************************************
@@ -1388,6 +2393,7 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TAX AA 1 2 
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1401,6 +2407,7 @@ OP10
 ;-------------------------------------------- 
 ;implied TAY A8 1 2 
 
+
 ;**********************************************************************
 ; INSTRUCTIONS!!!
 ;**********************************************************************
@@ -1412,6 +2419,7 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TSX BA 1 2 
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
@@ -1425,6 +2433,7 @@ OP10
 ;-------------------------------------------- 
 ;implied TXA 8A 1 2 
 
+
 ;**********************************************************************
 ; INSTRUCTIONS!!!
 ;**********************************************************************
@@ -1436,6 +2445,7 @@ OP10
 ;addressing assembler opc bytes cyles 
 ;-------------------------------------------- 
 ;implied TXS 9A 1 2 
+
 
 ;**********************************************************************
 ; INSTRUCTIONS!!!
