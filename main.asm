@@ -35,9 +35,9 @@ emulSP	res 1		;Stack Register
 emulOP	res 3		;stores actual OPCODE+CMD readed(3 bytes maximum for 6502)
 counter	res 1		;a counter to read X bytes of OPT+CMD :)
 
-aux1	res	1		;aux variables for addressing modes and instruction set
-aux2	res	1
-aux3	res	1
+aux1	res	1		;aux variables for addressing modes and instruction  
+auxOPL	res 1		;auxiliar table calculation
+auxOPH	res 1		;auxiliar table calculation
 
 ;aux for writing and reading routines
 ramL	res	1
@@ -294,63 +294,333 @@ HighInt:
 		retfie	FAST
 
 ;******************************************************************************
-; Comienzo del programa principal
-; El codigo del programa principal es colocado aqui
-
 Main:
-;	*** EL codigo principal va aqui ***
-
-;********************	Inicializacion de perifericos	*********************
+;********************	Modules Init	*********************
 	movlw	B'01100000'
-	movwf	OSCCON					;Ajustamos el oscilador interno a 4 MHz
+	movwf	OSCCON				;Ajustamos el oscilador interno a 4 MHz(CHANGE)
 	movlw	B'00001111'
-	movwf	ADCON1,0				;Todos los pines como I/O digitales
+	movwf	ADCON1,0			;All pins as Digital
 
-	clrf	TRISA,0				;Puerto A como salida	
-	clrf	TRISB,0				;Puerto B como salida	
-	clrf	TRISC,0				;Puerto C como salida	
-	clrf	TRISD,0				;Puerto D como salida
-	clrf	TRISE,0				;Puerto E como salida	
+	clrf	TRISA,0				;PORTA is now OUTPUT
+	clrf	TRISB,0				;PORTB is now OUTPUT
+	clrf	TRISC,0				;PORTC is now OUTPUT
+	clrf	TRISD,0				;PORTD is now OUTPUT
+	clrf	TRISE,0				;PORTE is now OUTPUT	
 
-;********************	Inicializacion del EMULADOR DE uP	*********************
+;********************	emulator initial values		*********************
 	;clear emulator Registers...
 	clrf	emulPC			;emulator Program Counter...
 	clrf	emulPC+1
 	clrf	emulAC			;emulator Acumulator
 	clrf	emulX			;emulator X pointer
 	clrf	emulY			;emulator Y pointer
-	movlw	b'00110000'
+	movlw	b'00110000'		;D and I flags begin Set
 	movwf	emulSR			;emulator STATUS REGISTER
 	clrf	emulSP			;emulator STACK POINTER
+
+	clrf	emulOP			;emulator Actual OPERATOR 
+
+	bra		EXECUTE			;eternal loop begins...
 
 EXECUTE
 	lfsr	FSR0, emulOP	;load indirect data register FSR0 with start of data array were command will be stored...
 	movlw	.1				;indicate that we will read 1 byte...(only OP)
 	call	ReadOP
 
-	;split OPCODEs in two tables...
-	btfsc	emulOP,7		;check if OPCODE is bigger than 0x7F...
-	bra	HIGH_OP
+	movff	emulOP,auxOPL				;[BEGIN]calculate Goto ADDRESS
+	clrf	auxOPH					;...
 
-LOW_OP						;OPCODE is smaller than 0x80
-	rlncf	emulOP,W		;multiply OCPODE per 2
-	addwf	PCL,F
-	;goto	OP00			;OP = 0x00. Break interrupt
-	goto	OP01			;OP = 0x01. ORA ¡¡¡¡?
+	movlw	HIGH BEGIN_OPLIST		;...
+	movwf	PCLATH
+	bcf		STATUS,C
+	rlcf	auxOPL,F
+	rlcf	auxOPH,F
+	bcf		STATUS,C
+	rlcf	auxOPL,F
+	rlcf	auxOPH,W
+	addwf	PCLATH
+	movlw	LOW	BEGIN_OPLIST
+	addwf	auxOPL,F
+	btfsc	STATUS,C
+	incf	PCLATH,F				;...[/BEGIN]
 
-	bra		EXECUTE
+	movf	auxOPL,W
+	movwf	PCL				;JUMP To calculated position inside OPLIST
+BEGIN_OPLIST
+	goto	OP00			;OP = 
+	goto	OP01			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP05			;OP =
+	goto	OP06			;OP =
+	goto	EXECUTE
+	goto	OP08			;OP =
+	goto	OP09			;OP =
+	goto	OP0A			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP0D			;OP =
+	goto	OP0E			;OP =
+	goto	EXECUTE
 
-HIGH_OP						;OPCODE is bigger than 0x7F
-	rlncf	emulOP,W		;multiply OCPODE per 2
-	addwf	PCL,F
+	goto	OP10			;OP = 
+	goto	OP11			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP15			;OP =
+	goto	OP16			;OP =
+	goto	EXECUTE
+	goto	OP18			;OP =
+	goto	OP19			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP1D			;OP =
+	goto	OP1E			;OP =
+	goto	EXECUTE
 
-	bra		EXECUTE
+	goto	OP20			;OP = 
+	goto	OP21			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP24			;OP =
+	goto	OP25			;OP =
+	goto	OP26			;OP =
+	goto	EXECUTE
+	goto	OP28			;OP =
+	goto	OP29			;OP =
+	goto	OP2A			;OP =
+	goto	EXECUTE
+	goto	OP2C			;OP =
+	goto	OP2D			;OP =
+	goto	OP2E			;OP =
+	goto	EXECUTE
+
+	goto	OP30			;OP = 
+	goto	OP31			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP35			;OP =
+	goto	OP36			;OP =
+	goto	EXECUTE
+	goto	OP38			;OP =
+	goto	OP39			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP3D			;OP =
+	goto	OP3E			;OP =
+	goto	EXECUTE
+
+	goto	OP40			;OP = 
+	goto	OP41			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP45			;OP =
+	goto	OP46			;OP =
+	goto	EXECUTE
+	goto	OP48			;OP =
+	goto	OP49			;OP =
+	goto	OP4A			;OP =
+	goto	EXECUTE
+	goto	OP4C			;OP =
+	goto	OP4D			;OP =
+	goto	OP4E			;OP =
+	goto	EXECUTE
+
+	goto	OP50			;OP = 
+	goto	OP51			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP55			;OP =
+	goto	OP56			;OP =
+	goto	EXECUTE
+	goto	OP58			;OP =
+	goto	OP59			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP5D			;OP =
+	goto	OP5E			;OP =
+	goto	EXECUTE
+
+	goto	OP60			;OP = 
+	goto	OP61			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP65			;OP =
+	goto	OP66			;OP =
+	goto	EXECUTE
+	goto	OP68			;OP =
+	goto	OP69			;OP =
+	goto	OP6A			;OP =
+	goto	EXECUTE
+	goto	OP6C			;OP =
+	goto	OP6D			;OP =
+	goto	OP6E			;OP =
+	goto	EXECUTE
+
+	goto	OP70			;OP = 
+	goto	OP71			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP75			;OP =
+	goto	OP76			;OP =
+	goto	EXECUTE
+	goto	OP78			;OP =
+	goto	OP79			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP7D			;OP =
+	goto	OP7E			;OP =
+	goto	EXECUTE
 
 
+							;OPCODE [0x80,0xFF]
+	goto	EXECUTE
+	goto	OP81			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP84			;OP =
+	goto	OP85			;OP =
+	goto	OP86			;OP =
+	goto	EXECUTE
+	goto	OP88			;OP =
+	goto	EXECUTE
+	goto	OP8A			;OP =
+	goto	EXECUTE
+	goto	OP8C			;OP =
+	goto	OP8D			;OP =
+	goto	OP8E			;OP =
+	goto	EXECUTE
+
+	goto	OP90			;OP = 
+	goto	OP91			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP94			;OP =
+	goto	OP95			;OP =
+	goto	OP96			;OP =
+	goto	EXECUTE
+	goto	OP98			;OP =
+	goto	OP99			;OP =
+	goto	OP9A			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OP9D			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+
+	goto	OPA0			;OP = 
+	goto	OPA1			;OP = 
+	goto	OPA2			;OP =
+	goto	EXECUTE
+	goto	OPA4			;OP =
+	goto	OPA5			;OP =
+	goto	OPA6			;OP =
+	goto	EXECUTE
+	goto	OPA8			;OP =
+	goto	OPA9			;OP =
+	goto	OPAA			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OPAD			;OP =
+	goto	OPAE			;OP =
+	goto	EXECUTE
+
+	goto	OPB0			;OP = 
+	goto	OPB1			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OPB4			;OP =
+	goto	OPB5			;OP =
+	goto	OPB6			;OP =
+	goto	EXECUTE
+	goto	OPB8			;OP =
+	goto	OPB9			;OP =
+	goto	OPBA			;OP =
+	goto	EXECUTE
+	goto	OPBC			;OP =
+	goto	OPBD			;OP =
+	goto	OPBE			;OP =
+	goto	EXECUTE
+
+	goto	OPC0			;OP = 
+	goto	OPC1			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OPC4			;OP =
+	goto	OPC5			;OP =
+	goto	OPC6			;OP =
+	goto	EXECUTE
+	goto	OPC8			;OP =
+	goto	OPC9			;OP =
+	goto	OPCA			;OP =
+	goto	EXECUTE
+	goto	OPCC			;OP =
+	goto	OPCD			;OP =
+	goto	OPCE			;OP =
+	goto	EXECUTE
+
+	goto	OPD0			;OP = 
+	goto	OPD1			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OPD5			;OP =
+	goto	OPD6			;OP =
+	goto	EXECUTE
+	goto	OPD8			;OP =
+	goto	OPD9			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OPDD			;OP =
+	goto	OPDE			;OP =
+	goto	EXECUTE
 
 
+	goto	OPE0			;OP = 
+	goto	OPE1			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OPE4			;OP =
+	goto	OPE5			;OP =
+	goto	OPE6			;OP =
+	goto	EXECUTE
+	goto	OPE8			;OP =
+	goto	OPE9			;OP =
+	goto	OPEA			;OP =
+	goto	EXECUTE
+	goto	OPEC			;OP =
+	goto	OPED			;OP =
+	goto	OPEE			;OP =
+	goto	EXECUTE
 
-
+	goto	OPF0			;OP = 
+	goto	OPF1			;OP = 
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OPF5			;OP =
+	goto	OPF6			;OP =
+	goto	EXECUTE
+	goto	OPF8			;OP =
+	goto	OPF9			;OP =
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	EXECUTE
+	goto	OPFD			;OP =
+	goto	OPFE			;OP =
+	goto	EXECUTE
 
 
 ;///////////////////////////////////*********;///////////////////////////////////
@@ -2849,7 +3119,7 @@ ABSX
 ;absolute, Y
 ;///////////////////////
 ABSY
-	movlw	.3
+	movlw	.2
 	call	ReadOP				;this command consumes 3 bytes(OP+2 more...)	
 
 	movf	emulOP+2,W		;move second byte of instruction to W
