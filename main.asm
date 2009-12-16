@@ -1,11 +1,36 @@
 ;******************************************************************************
+;******************************************************************************
+;******************************************************************************
+;******************************************************************************
+;made by Bruno Fascendini(bipus24hs@hotmail.com) for uControl(http://www.ucontrol.com.ar)
+;I started programming this lines in: 12/12/2009
+;project main URLs: 
+;http://www.ucontrol.com.ar/forosmf/proyectos-con-pic/ordenador-basado-en-un-pic-de-40-pines-(en-limpio)/
+;discuss:
+;http://www.ucontrol.com.ar/forosmf/proyectos-con-pic/ordenador-basado-en-un-pic-de-40-pines/
+;PLEASE, DO NOT DELETE THIS CREDITS!!
+;******************************************************************************
+;******************************************************************************
+;******************************************************************************
+;NAME: emul6502
+;PART OF: 
+;DESCRIPTION:
+;EMULATES A MOS6502 uP with a PIC18F4550
+;
+;
+;******************************************************************************
+;******************************************************************************
+;******************************************************************************
+
 	LIST P=18F4550				;Directiva para definir el procesador
 	#include <P18F4550.INC>		;Definicion de SFRs para el procesador
 
 ;******************************************************************************
 ;Bits de Configuracion 
 ;********	Configuracion del Oscilador	**********
-    CONFIG	FOSC = INTOSCIO_EC         ;Osc interno, RA6 como pin, USB usa Osc EC
+    ;CONFIG	FOSC = INTOSC_HS
+	;CONFIG	PLLDIV = 5
+	;CONFIG	CPUDIV = OSC1_PLL2
 ;********	Otros bits de configuracion	**********
 	CONFIG	PWRT = ON					;PWRT habilitado
 	CONFIG	BOR  = OFF					;Brown out resete deshabilitado 
@@ -13,6 +38,7 @@
 	CONFIG  MCLRE = OFF					;MCLR como entrada
 	CONFIG	PBADEN = ON					;Todos los pines como entradas analogicas
 	CONFIG	LVP	= OFF					;Programacion en bajo voltaje apagado
+
 ;*********	Bits de proteccion	******************
 	CONFIG	CP0	= OFF					;los bloques del codigo de programa
 	CONFIG	CP1	= OFF					;no estan protegidos
@@ -24,7 +50,9 @@
 ; Definicion de variables
 	UDATA
 ;emul fisical registers
-emulPC 	res 2		;Stores Program Counter
+emulPCL res 1		;Stores Program Counter Low Byte
+emulPCH res 1		;Stores Program Counter High Byte
+
 emulAC	res 1		;Acumulator
 emulX	res 1		;X register
 emulY	res 1		;Y register
@@ -44,6 +72,13 @@ ramL	res	1
 ramH	res	1
 data8	res	1
 
+;RS232
+aux232	res 1
+cont232	res 1
+
+;DelayUs
+del1	res 1
+
 emulTempPC 	res 2	;stores aux PC counter
 
 ;auxiliar variables
@@ -55,6 +90,8 @@ BSR_TEMP 	res 1			;variable usada para salvar contexto
 ;******************************************************************************
 ; Definicion de bits constantes
 ;******************************************************************************
+#define	BAUDRATE		.19200								;indicate 9600 baudrate for RS-232
+#define	DELAY232		(.800000/BAUDRATE)					;get quantity of uS for each Baud
 
 ; Definicion de PINES!!!
 	;#define	emul_PIN_NC1	PORTA,4	
@@ -92,7 +129,9 @@ BSR_TEMP 	res 1			;variable usada para salvar contexto
 #define	emul_PIN_D6		PORTB,6
 #define	emul_PIN_D7		PORTB,7
 
-
+;RS232 Pins
+#define	emul_RX			PORTA,4
+#define	emul_TX			PORTE,0
 ;emulSR bits(STATUS REGISTER)
 #define	emul_N		emulSR,7
 #define	emul_V		emulSR,6
@@ -189,11 +228,11 @@ PUSHPC2STACK	MACRO
 		movlw	0x01
 		movwf	ramH
 	
-		movff	emulPC+1,aux1	;store high emulPC byte in aux var
+		movff	emulPCH,aux1	;store high emulPC byte in aux var
 		movff	emulSP,ramL	;load 0x0100 + emulSP address were to write...
 	
 		movlw	0x02		;calculate PC+2 position...
-		addwf	emulPC,W
+		addwf	emulPCL,W
 		btfss	STATUS,C	;Overflow?
 		incf	aux1		;indicate it in high byte emulPC var
 	
@@ -221,14 +260,14 @@ PULLPCFROMSTACK	MACRO
 		movf	emulSP,W	;address 0x0100+emulSP
 		call	readRAM
 
-		movwf	emulPC+1	;save readed value to PCH
+		movwf	emulPCH		;save readed value to PCH
 
 		decf	emulSP,F	;decrement SP
 
 		movf	emulSP,W	;address 0x0100+emulSP
 		call	readRAM
 
-		movwf	emulPC		;save readed value to PCL
+		movwf	emulPCL		;save readed value to PCL
 	ENDM
 
 ;/////////////////////////////////
@@ -250,7 +289,6 @@ PUSHSR2STACK	MACRO
 ; Este codigo comenzara a ejecutarse cuando suceda un reset
 
 		ORG	0x0000
-
 		bra	Main		;Se va al inicio del codigo principal
 
 ;******************************************************************************
@@ -301,7 +339,8 @@ Main:
 	movlw	B'00001111'
 	movwf	ADCON1,0			;All pins as Digital
 
-	clrf	TRISA,0				;PORTA is now OUTPUT
+	movlw	b'00010000'			;Set PORTA to outputs except for RX pin
+	movwf	TRISA
 	clrf	TRISB,0				;PORTB is now OUTPUT
 	clrf	TRISC,0				;PORTC is now OUTPUT
 	clrf	TRISD,0				;PORTD is now OUTPUT
@@ -309,8 +348,8 @@ Main:
 
 ;********************	emulator initial values		*********************
 	;clear emulator Registers...
-	clrf	emulPC			;emulator Program Counter...
-	clrf	emulPC+1
+	clrf	emulPCL			;emulator Program Counter...
+	clrf	emulPCH
 	clrf	emulAC			;emulator Acumulator
 	clrf	emulX			;emulator X pointer
 	clrf	emulY			;emulator Y pointer
@@ -320,13 +359,22 @@ Main:
 
 	clrf	emulOP			;emulator Actual OPERATOR 
 
+;RS232test:
+;	call	GetC
+;	movf	WREG,F
+;	btfsc	STATUS,Z
+;	bra		RS232test
+
+;	movff	aux232,PORTB
+;	bra		RS232test
+
 	bra		EXECUTE			;eternal loop begins...
 
 EXECUTE
 	lfsr	FSR0, emulOP	;load indirect data register FSR0 with start of data array were command will be stored...
 	movlw	.1				;indicate that we will read 1 byte...(only OP)
 	call	ReadOP
-
+	
 	movff	emulOP,auxOPL				;[BEGIN]calculate Goto ADDRESS
 	clrf	auxOPH					;...
 
@@ -932,9 +980,9 @@ OP90
 	goto	EXECUTE
 
 	movf	emulOP+1,W		;Yes. Branch!
-	addwf	emulPC,F
+	addwf	emulPCL,F
 	btfsc	STATUS,C		;page overflow?
-	incf	emulPC+1,F		;yes, increase page number
+	incf	emulPCH,F		;yes, increase page number
 
 	MODIFY_FLAGS	(0)		;no flags affected
 	goto	EXECUTE			;done!
@@ -959,9 +1007,9 @@ OPB0
 	goto	EXECUTE
 
 	movf	emulOP+1,W		;Yes. Branch!
-	addwf	emulPC,F
+	addwf	emulPCL,F
 	btfsc	STATUS,C		;page overflow?
-	incf	emulPC+1,F		;yes, increase page number
+	incf	emulPCH,F		;yes, increase page number
 
 	MODIFY_FLAGS	(0)		;no flags affected
 	goto	EXECUTE			;done!
@@ -987,9 +1035,9 @@ OPF0
 	goto	EXECUTE
 
 	movf	emulOP+1,W		;Yes. Branch!
-	addwf	emulPC,F
+	addwf	emulPCL,F
 	btfsc	STATUS,C		;page overflow?
-	incf	emulPC+1,F		;yes, increase page number	
+	incf	emulPCH,F		;yes, increase page number	
 
 	MODIFY_FLAGS	(0)		;no flags affected
 	goto	EXECUTE
@@ -1067,9 +1115,9 @@ OP30
 	goto	EXECUTE
 
 	movf	emulOP+1,W		;Yes. Branch!
-	addwf	emulPC,F
+	addwf	emulPCL,F
 	btfsc	STATUS,C		;page overflow?
-	incf	emulPC+1,F		;yes, increase page number	
+	incf	emulPCH,F		;yes, increase page number	
 
 	MODIFY_FLAGS	(0)		;no flags affected
 	goto	EXECUTE
@@ -1096,9 +1144,9 @@ OPD0
 	goto	EXECUTE
 
 	movf	emulOP+1,W		;Yes. Branch!
-	addwf	emulPC,F
+	addwf	emulPCL,F
 	btfsc	STATUS,C		;page overflow?
-	incf	emulPC+1,F		;yes, increase page number	
+	incf	emulPCH,F		;yes, increase page number	
 
 	MODIFY_FLAGS	(0)		;no flags affected
 	goto	EXECUTE
@@ -1125,9 +1173,9 @@ OP10
 	goto	EXECUTE
 
 	movf	emulOP+1,W		;Yes. Branch!
-	addwf	emulPC,F
+	addwf	emulPCL,F
 	btfsc	STATUS,C		;page overflow?
-	incf	emulPC+1,F		;yes, increase page number	
+	incf	emulPCH,F		;yes, increase page number	
 
 	MODIFY_FLAGS	(0)		;no flags affected
 	goto	EXECUTE
@@ -1154,10 +1202,10 @@ OP00
 
 	;load Software interrupt address in PC
 	movlw	0xFF
-	movwf	emulPC+1	;load 0xFFXX address
+	movwf	emulPCH		;load 0xFFXX address
 
 	movlw	0xFE
-	movwf	emulPC		;load 0xFFFE address
+	movwf	emulPCL		;load 0xFFFE address
 
 	bsf		emul_I		;indicate Software Interrupt occur
 	
@@ -1184,9 +1232,9 @@ OP50
 	goto	EXECUTE
 
 	movf	emulOP+1,W		;Yes. Branch!
-	addwf	emulPC,F
+	addwf	emulPCL,F
 	btfsc	STATUS,C		;page overflow?
-	incf	emulPC+1,F		;yes, increase page number	
+	incf	emulPCH,F		;yes, increase page number	
 
 	MODIFY_FLAGS	(0)		;no flags affected
 	goto	EXECUTE
@@ -1212,9 +1260,9 @@ OP70
 	goto	EXECUTE
 
 	movf	emulOP+1,W		;Yes. Branch!
-	addwf	emulPC,F
+	addwf	emulPCL,F
 	btfsc	STATUS,C		;page overflow?
-	incf	emulPC+1,F		;yes, increase page number	
+	incf	emulPCH,F		;yes, increase page number	
 
 	MODIFY_FLAGS	(0)		;no flags affected
 	goto	EXECUTE
@@ -1795,8 +1843,8 @@ OPC8
 ;///////////////////////////////////
 ;///////////////////////////////////
 JMP_COMMON
-	movff	emulOP+1,emulPC
-	movff	emulOP+2,emulPC+1		;set emulPC with address in instruction
+	movff	emulOP+1,emulPCL
+	movff	emulOP+2,emulPCH		;set emulPC with address in instruction
 	goto	EXECUTE
 
 ;///////////////////////////////////
@@ -1838,8 +1886,8 @@ OP20
 	call	ABS
 	PUSHPC2STACK		;MACRO THAT PUSHs PC TO SOFTWARE STACK
 
-	movff	emulOP+1,emulPC			;(PC+1) -> PCL
-	movff	emulOP+2,emulPC+1		;(PC+2) -> PCH 
+	movff	emulOP+1,emulPCL			;(PC+1) -> PCL
+	movff	emulOP+2,emulPCH			;(PC+2) -> PCH 
 	goto	EXECUTE
 
 
@@ -3217,16 +3265,16 @@ REL
 	bra		NEG_OFF
 
 	;positive OFFSET
-	addwf	emulPC,F		;add offset to Program Counter
+	addwf	emulPCL,F		;add offset to Program Counter
 	btfsc	STATUS,C		;check if overflow
-	incf	emulPC+1,F		;if OV, then increase high byte of Program Counter
+	incf	emulPCH,F		;if OV, then increase high byte of Program Counter
 	return
 
 NEG_OFF
 	andlw	0x7F			;erase sign
-	subwf	emulPC,F
+	subwf	emulPCL,F
 	btfss	STATUS,C		;check if underflow
-	decf	emulPC+1,F		;if Underflow, then decrease high byte of Program Counter
+	decf	emulPCH,F		;if Underflow, then decrease high byte of Program Counter
 	return
 
 ;///////////////////////
@@ -3269,6 +3317,110 @@ ZPGY
 ;I/O FUNCTIONS...
 ;////////////////////////////////////////////////////////////////////////////////////
 
+;*******************************
+;WRITES A BYTE FROM RS232 CHANNEL
+;*******************************
+PutC
+	movwf	aux232
+	bcf		emul_TX					;START BIT
+
+	movlw	DELAY232
+	call	DelayUs
+
+	;now, lets send each bit
+	movlw	.8
+	movwf	cont232
+NextBit
+	btfsc	aux232,0				;set or clear bit
+	bsf		emul_TX
+	btfss	aux232,0
+	bcf		emul_TX
+
+	rrcf	aux232,F				;rotate to the right the byte
+
+	movlw	DELAY232
+	call	DelayUs
+
+	decfsz	cont232,F				;decrement counter
+	bra		NextBit					;go to get next bit
+
+	bsf		emul_TX					;STOP BIT
+
+	movlw	DELAY232
+	call	DelayUs	
+
+	retlw	.1						;return with success
+
+;*******************************
+;READS A BYTE FROM RS232 CHANNEL
+;*******************************
+GetC
+	btfss	emul_RX					;if RX pin is low, then a byte was in progress. We're  too late surely...
+	retlw	.0						;so return	with  FAIL
+
+	movlw	DELAY232/2
+
+Espera
+	btfsc	emul_RX					;wait for begining of START bit
+	bra		Espera
+
+	call	DelayUs					;call soubrutine to put us in the middle of each bit life
+	
+	;btg		emul_TX
+	;btg		emul_TX
+
+	;now, lets read each bit
+	movlw	.8
+	movwf	cont232
+
+ReceiveNext
+	movlw	DELAY232
+	call	DelayUs
+
+	;btg		emul_TX
+	;btg		emul_TX
+
+	bcf		STATUS,C				;assume that is a low bit
+	btfsc	emul_RX
+	bsf		STATUS,C				;Ok,ok. it was high...so change it
+
+	rrcf	aux232,F				;rotate to the right the byte
+
+	decfsz	cont232,F				;decrement counter
+	bra		ReceiveNext				;go to get next bit
+
+	movlw	DELAY232
+	call	DelayUs	
+
+	;btg		emul_TX
+	;btg		emul_TX
+
+	btfss	emul_RX					;if RX pin is low, then something went wrong
+	retlw	.0						;so return	with  FAIL
+
+	retlw	.1						;return with success
+
+;////////////////////////////////
+;DELAY_US(12 MIPS)
+;////////////////////////////////
+DelayUs
+		movwf	del1
+		decf	del1,F
+		btfsc	STATUS,Z
+		bra		Sale
+	
+Loop
+		goto	$+2
+		goto	$+2
+		goto	$+2
+		decfsz	del1,F
+		bra		Loop
+
+		nop
+		nop
+Sale
+		goto	$+2
+		return
 ;/////////////////////////////////
 ;WRITE RAM POSITION.W must contain data to write. ramL must have LOW byte address to write to. High byte of address to write to must be pre-stored in ramH byte.
 ;////////////////////////////////
@@ -3317,7 +3469,7 @@ readZEROPAGERAM
 		bsf		emul_PIN_WR		;indicate reading RAM...
 
 		;***********
-		movlw	0x0F		;put address in ports
+		movlw	0x0F		;put addres s in ports
 		andwf	PORTA,F		;clean low nibble
 		movf	ramL,W
 		andlw	0x0F
@@ -3389,8 +3541,9 @@ readRAM
 ;////////////////////////////////
 ReadOP
 		movwf	counter			;store number of bytes to read...
+		movf	counter,f
 		btfsc	STATUS,Z		;counter=0?
-		return					;si,volver...
+		return					;yes, return
 
 		setf	TRISB			;PORTB ALL as input
 		bsf		emul_PIN_RAMROM	;RAMROM = 1 = ROM
@@ -3399,23 +3552,23 @@ NEXTBYTE
 		;***********
 		movlw	0x0F		;put address in ports
 		andwf	PORTA,F		;clean low nibble
-		movf	emulPC,W
+		movf	emulPCL,W
 		andlw	0x0F
 		iorwf	PORTA,F		;put address [A0-A3] bits
 
 		movlw	0xF0		;put address in ports
 		andwf	PORTC,F		;clean high nibble
-		movf	emulPC,W
+		movf	emulPCL,W
 		andlw	0xF0
 		iorwf	PORTC,F		;put address [A4-A7] bits
 
-		movff	emulPC+1,PORTD	;put address [A8-A15] bits
+		movff	emulPCH,PORTD	;put address [A8-A15] bits
 		;***********
 
 		bcf		emul_PIN_RD			;RD=0=ASK FOR ROM DATA
 
-		infsnz	emulPC,F			;increment emulPC address
-		incf	emulPC+1,F
+		infsnz	emulPCL,F			;increment emulPC address
+		incf	emulPCH,F
 
 		movf	PORTB,W				;read FLASH Data...
 		movwf	POSTINC0			;and store it in PIC RAM...(+ increment indirect file addressing position...)
@@ -3427,10 +3580,7 @@ NEXTBYTE
 		return
 ;////////////////////////////////
 
-	END
-
-
-
+		END
 
 
 ;*******************************
